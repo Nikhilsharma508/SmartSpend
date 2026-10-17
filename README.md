@@ -70,11 +70,10 @@ Stated openly, since every profit figure depends on them. **Decide these on Day 
 
 | Assumption | Value | Notes |
 | --- | --- | --- |
-| Reporting currency | INR (₹) | source data is USD |
-| USD → INR rate | _TBD_ | state the rate **and its date** |
+| Reporting currency | USD ($) | Hillstrom spend is already USD |
 | Gross margin on incremental spend | _TBD_ % | spend → profit |
-| Cost per contact (e-mail) | _TBD_ | fixed send cost per customer |
-| Value per conversion (Criteo only) | _TBD_ | Criteo records no spend |
+| Cost per contact (e-mail) | _TBD_ USD | fixed send cost per customer |
+| Value per conversion (Criteo only) | _TBD_ USD | Criteo records no spend |
 
 Formula used throughout:
 
@@ -94,7 +93,7 @@ Filled in as the build progresses (Day 2 onwards).
 | --- | --- | --- |
 | Qini AUC | | |
 | Incremental conversions at 30% targeted | | |
-| Incremental profit per ₹1L spend | | |
+| Incremental profit per $10k spend | | |
 | Copilot numeric faithfulness (% figures traced to tools) | — | |
 
 ## Repo structure
@@ -132,4 +131,4 @@ Boundaries that keep it honest: notebooks are research only; reusable code lives
 
 - Diemert et al., *A Large Scale Benchmark for Individual Treatment Effect Prediction and Uplift Modeling* — <https://arxiv.org/abs/2111.10106>
 - scikit-uplift docs — <https://www.uplift-modeling.com/>
-- MineThatData Hillstrom challenge (source prose: `hillstrom_data description.md`)
+- MineThatData Hillstrom challenge (source prose: [`docs/hillstrom_data_description.md`](docs/hillstrom_data_description.md))

@@ -1,7 +1,8 @@
 # Hillstrom MineThatData E-Mail Analytics — Structured Data Description
 
 Structured reference for the Hillstrom e-mail experiment, derived from the original
-challenge prose (`hillstrom_data description.md`, kept at the repo root as the raw source).
+challenge prose (`docs/hillstrom_data_description.md`, the original source, relocated from
+the repository root and restructured without changing its wording).
 Everything below is verified against the actual file in `data/raw/`.
 
 ## 1. Summary
@@ -141,8 +142,8 @@ entire reason uplift models are needed.
 - **Features:** `recency`, `history`, `mens`, `womens`, `zip_code`, `newbie`, `channel`.
   Drop `history_segment` (collinear with `history`) at model time; one-hot `zip_code` and
   `channel`. **Never** let `segment`, `visit`, `conversion` or `spend` leak into features.
-- **Currency:** `spend` is USD. For ₹ display, convert at a stated, dated rate and label it;
-  otherwise keep USD and label it USD.
+- **Currency:** `spend` is USD, and the project reports in **USD only** (decided). No
+  conversion is applied; label every figure USD.
 
 ## 6. Data quality notes
 
@@ -156,7 +157,7 @@ entire reason uplift models are needed.
 
 ## 7. Provenance / original source
 
-Original prose (`hillstrom_data description.md`) states: the dataset is a CSV "about the
+Original prose (`docs/hillstrom_data_description.md`) states: the dataset is a CSV "about the
 size of a typical mp3 file", 64,000 customers who last purchased within twelve months,
 randomized 1/3 Mens / 1/3 Womens / 1/3 no e-mail, with a two-week tracking window. The
 original challenge page is no longer reliably hosted; mirrors exist on Kaggle and the
