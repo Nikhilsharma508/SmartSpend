@@ -1,0 +1,51 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# ---- uv ----
+# Keep uv.lock committed. Do not ignore it.
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ---- Testing / tooling caches ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---- Data (rebuilt by pipelines/download.py) ----
+# Raw is never committed; processed is regenerable.
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+*.parquet
+
+# ---- MLflow / model artifacts ----
+mlruns/
+mlartifacts/
+models/
+
+# ---- Secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.swp

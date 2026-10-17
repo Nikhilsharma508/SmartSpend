@@ -1,0 +1,29 @@
+# Business assumptions for UpliftIQ.
+# Every figure here must also appear in the brief's "assumptions" section.
+# TODO [YOU] Day 1: confirm or change the values marked `# DECIDE`.
+
+currency:
+  reporting: INR          # display currency for the copilot's briefs
+  source: USD             # Hillstrom spend is recorded in USD
+  usd_to_inr: 88.0        # DECIDE: state a dated rate, or keep USD everywhere
+
+hillstrom:
+  # Margin applied to incremental spend to get gross profit.
+  # If unknown, a common placeholder is the retail gross margin.
+  margin_rate: 0.30       # DECIDE
+
+  # Cost of sending one marketing e-mail / contacting one customer.
+  cost_per_contact_usd: 0.10   # DECIDE
+
+  # Only needed for the Criteo scale benchmark (no spend recorded there).
+  value_per_conversion_usd: null   # DECIDE before running Criteo
+
+  # Default arm for the binary experiment, chosen on Day 1 from observed lift.
+  binary_arm: mens        # Mens vs No E-Mail (Mens shows the larger lift)
+
+# Defaults used by the copilot when the marketer does not state a value.
+# Anything filled from here must be flagged as an assumption in the brief.
+copilot_defaults:
+  budget_inr: 500000         # 5 lakh
+  cost_per_contact_inr: 40
+  value_per_conversion_inr: null   # falls back to margin * spend if null

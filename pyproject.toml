@@ -1,0 +1,53 @@
+[project]
+name = "smartspend"
+version = "0.1.0"
+description = "UpliftIQ — causal promo targeting with a grounded GenAI campaign copilot"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "causalml>=0.18.0",
+    "econml>=0.17.0",
+    "ipykernel>=7.4.0",
+    "jupyterlab>=4.6.4",
+    "lightgbm>=4.7.0",
+    "matplotlib>=3.11.2",
+    "numpy>=2.4.6",
+    "pandas>=3.0.6",
+    "pyarrow>=26.0.0",
+    "pydantic>=2.14.1",
+    "pyyaml>=6.0.3",
+    "scikit-learn>=1.9.1",
+    "scikit-uplift>=0.5.1",
+    "scipy>=1.17.1",
+    "seaborn>=0.13.2",
+    "statsmodels>=0.15.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests", "apps/api/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Notebooks bootstrap sys.path before importing project packages, and cell-level
+# import style differs from a module's.
+"*.ipynb" = ["E402", "E401", "I001"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+files = ["packages", "pipelines"]
