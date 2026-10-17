@@ -1,9 +1,8 @@
 # Hillstrom MineThatData E-Mail Analytics — Structured Data Description
 
-Structured reference for the Hillstrom e-mail experiment, derived from the original
-challenge prose (`docs/hillstrom_data_description.md`, the original source, relocated from
-the repository root and restructured without changing its wording).
-Everything below is verified against the actual file in `data/raw/`.
+The single reference for the Hillstrom e-mail experiment. The original challenge prose is
+reproduced **verbatim** in Appendix A at the end of this document; everything else below is
+verified against the actual file in `data/raw/`.
 
 ## 1. Summary
 
@@ -157,9 +156,51 @@ entire reason uplift models are needed.
 
 ## 7. Provenance / original source
 
-Original prose (`docs/hillstrom_data_description.md`) states: the dataset is a CSV "about the
+Original prose (Appendix A) states: the dataset is a CSV "about the
 size of a typical mp3 file", 64,000 customers who last purchased within twelve months,
 randomized 1/3 Mens / 1/3 Womens / 1/3 no e-mail, with a two-week tracking window. The
 original challenge page is no longer reliably hosted; mirrors exist on Kaggle and the
 Minethatdata archive. The local copy is treated as canonical and verified by the SHA-256
 in §1.
+
+It is a MineThatData challenge by Kevin Hillstrom (dated 2008-03-20 in the source filename),
+and its stated goal was to determine whether the Mens or Womens e-mail campaign was
+successful — the question this project answers with causal methods rather than raw rates.
+
+## Appendix A — Original challenge prose (verbatim)
+
+Reproduced exactly as received, line breaks and all. This is the raw source; the sections
+above are the verified, structured version of it.
+
+```text
+The MineThatData E-Mail Analytics And Data Mining Challenge
+It is time to find a few smart individuals in the world of e-mail analytics and data mining! And honestly, what follows is a dataset that you can manipulate using Excel pivot tables, so you don't have to be a data mining wizard, just be clever!
+
+Here is a link to the MineThatData E-Mail Analytics And Data Mining Challenge dataset: The dataset is in .csv format, and is about the size of a typical mp3 file. I recommend saving the file to disk, then open the file (read only) in the software tool of your choice.
+
+This dataset contains 64,000 customers who last purchased within twelve months. The customers were involved in an e-mail test.
+1/3 were randomly chosen to receive an e-mail campaign featuring Mens merchandise.
+1/3 were randomly chosen to receive an e-mail campaign featuring Womens merchandise.
+1/3 were randomly chosen to not receive an e-mail campaign.
+During a period of two weeks following the e-mail campaign, results were tracked. Your job is to tell the world if the Mens or Womens e-mail campaign was successful.
+
+Historical customer attributes at your disposal include:
+Recency: Months since last purchase.
+History_Segment: Categorization of dollars spent in the past year.
+History: Actual dollar value spent in the past year.
+Mens: 1/0 indicator, 1 = customer purchased Mens merchandise in the past year.
+Womens: 1/0 indicator, 1 = customer purchased Womens merchandise in the past year.
+Zip_Code: Classifies zip code as Urban, Suburban, or Rural.
+Newbie: 1/0 indicator, 1 = New customer in the past twelve months.
+Channel: Describes the channels the customer purchased from in the past year.
+Another variable describes the e-mail campaign the customer received:
+Segment
+Mens E-Mail
+Womens E-Mail
+No E-Mail
+Finally, we have a series of variables describing activity in the two weeks following delivery of the e-mail campaign:
+Visit: 1/0 indicator, 1 = Customer visited website in the following two weeks.
+Conversion: 1/0 indicator, 1 = Customer purchased merchandise in the following two weeks.
+Spend: Actual dollars spent in the following two weeks.
+Ok, that represents the basics.
+```

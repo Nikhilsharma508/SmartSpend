@@ -131,4 +131,4 @@ Boundaries that keep it honest: notebooks are research only; reusable code lives
 
 - Diemert et al., *A Large Scale Benchmark for Individual Treatment Effect Prediction and Uplift Modeling* — <https://arxiv.org/abs/2111.10106>
 - scikit-uplift docs — <https://www.uplift-modeling.com/>
-- MineThatData Hillstrom challenge (source prose: [`docs/hillstrom_data_description.md`](docs/hillstrom_data_description.md))
+- MineThatData Hillstrom challenge (original prose: [`docs/datasets/hillstrom.md`](docs/datasets/hillstrom.md), Appendix A)
