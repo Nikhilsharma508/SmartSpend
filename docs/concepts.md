@@ -111,6 +111,14 @@ practically irrelevant. The right reading is: *how many* are flagged, *how large
 and does the pattern suggest a broken assignment. A clean randomized experiment
 shows a scatter of small values, both signs, with no structure.
 
+**Why a fixed threshold and not a p-value.** A test at this sample size is
+extremely sensitive: a 50/50 binary feature with SMD = 0.03 — a 1.5-point gap
+between arms, or about $8 of mean `history` — is statistically significant
+(p ≈ 0.002), yet it is far too small to affect any targeting decision. With enough
+data, *everything* is statistically significant. A p-value would eventually flag a
+perfectly good randomization, which is why the rule uses an effect-size threshold
+(0.1) that does not shrink as `n` grows.
+
 ### Average treatment effect (ATE) and confidence interval
 
 ```text
