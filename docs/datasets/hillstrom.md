@@ -69,7 +69,7 @@ evidence used on Day 1 to pick the binary experiment (see §6).
 | Column | Type | Description | Observed values |
 | --- | --- | --- | --- |
 | `recency` | int | Months since last purchase | 1–12 (mean 5.76) |
-| `history_segment` | categorical (ordinal) | Bucket of dollars spent in the past year | 7 ordered buckets, see §3.2 |
+| `history_segment` | categorical | Bucket of dollars spent in the past year | 7 buckets, see §3.2 |
 | `history` | float | Actual dollars spent in the past year | 29.99–3345.93 (mean 242.09) |
 | `mens` | int (0/1) | Bought mens merchandise in the past year | 0: 28,734 · 1: 35,266 |
 | `womens` | int (0/1) | Bought womens merchandise in the past year | 0: 28,818 · 1: 35,182 |
@@ -77,7 +77,16 @@ evidence used on Day 1 to pick the binary experiment (see §6).
 | `newbie` | int (0/1) | New customer in the past 12 months | 0: 31,856 · 1: 32,144 |
 | `channel` | categorical | Channel(s) purchased from in the past year | Phone: 28,021 · Web: 28,217 · Multichannel: 7,762 |
 
-### 3.2 `history_segment` buckets (ordinal, ascending)
+### 3.2 `history_segment` buckets
+
+Buckets 6 and 7 contain embedded commas in the raw text and are quoted in the CSV;
+they parse correctly only with a real CSV reader (verified: 0 `NaN` after load).
+
+The loader keeps this column as plain strings rather than an ordered category. The
+labels are ordered, but encoding that order would assert an equally-spaced ordinal
+scale — a modelling choice the project does not make, since `history_segment` is
+excluded from `FEATURES` as a deterministic function of `history` (§4). Notebook 01
+shows the bucket ranges nesting exactly inside the `history` values.
 
 | Bucket label (as stored) | Customers |
 | --- | --- |

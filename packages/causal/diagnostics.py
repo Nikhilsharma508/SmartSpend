@@ -15,17 +15,22 @@ SMD_FLAG_THRESHOLD = 0.1
 
 
 def _levels(df: pd.DataFrame, col: str) -> list:
-    """Return the values of ``col`` to compare, expanding categoricals to one-vs-rest."""
-    if isinstance(df[col].dtype, pd.CategoricalDtype):
-        return list(df[col].cat.categories)
-    return [None]  # None => treat the column as a single numeric/binary variable
+    """Return the values of ``col`` to compare, expanding non-numeric columns.
+
+    Numeric and binary columns are compared as a single variable (``None``);
+    anything else -- pandas ``category``, ``string`` or ``object`` -- is expanded
+    to one-vs-rest levels. Keying off "is numeric" rather than "is categorical"
+    keeps this working when a string column arrives un-cast (notebook 01 reads
+    the raw CSV, where ``zip_code``/``channel`` load as ``string`` dtype).
+    """
+    if pd.api.types.is_numeric_dtype(df[col]):
+        return [None]  # None => treat the column as one numeric/binary variable
+    return list(pd.unique(df[col].dropna()))
 
 
 def _series_for_level(df: pd.DataFrame, col: str, level) -> pd.Series:
     if level is None:
         return df[col].astype(float)
-    if isinstance(df[col].dtype, pd.CategoricalDtype):
-        return (df[col] == level).astype(float)
     return (df[col] == level).astype(float)
 
 

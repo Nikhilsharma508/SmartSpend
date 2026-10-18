@@ -26,8 +26,10 @@ that change nothing. An uplift model ranks **persuadables** highest instead.
 
 - [x] Repo skeleton, `uv` environment with pinned versions
 - [x] Structured dataset spec — [`docs/datasets/hillstrom.md`](docs/datasets/hillstrom.md)
+- [x] Concept reference — [`docs/concepts.md`](docs/concepts.md)
 - [x] Hillstrom loader (`packages/datasets/hillstrom.py`) + experiment diagnostics
-- [x] Day-1 notebook — [`research/notebooks/01_hillstrom_eda_randomization.ipynb`](research/notebooks/01_hillstrom_eda_randomization.ipynb)
+- [x] EDA notebook — [`research/notebooks/01_hillstrom_eda.ipynb`](research/notebooks/01_hillstrom_eda.ipynb)
+- [x] Randomization + ATE notebook — [`research/notebooks/02_hillstrom_randomization_ate.ipynb`](research/notebooks/02_hillstrom_randomization_ate.ipynb)
 - [ ] **TODO [YOU]** SMD table reviewed; flags explained
 - [ ] **TODO [YOU]** ATE table (95% CI) reviewed and interpreted
 - [ ] **TODO [YOU]** Binary arm chosen and justified
@@ -52,8 +54,8 @@ Requires [`uv`](https://docs.astral.sh/uv/). Python is pinned to **3.11**
 
 ```bash
 uv sync                              # create .venv and install everything
-uv run python pipelines/download.py  # verify the raw Hillstrom checksum
-uv run jupyter lab                   # open research/notebooks/01_*.ipynb
+uv run python pipelines/download.py  # fetch the raw Hillstrom CSV if missing, then verify
+uv run jupyter lab                   # open research/notebooks/
 ```
 
 Run the tests and linters:
@@ -61,7 +63,7 @@ Run the tests and linters:
 ```bash
 uv run pytest
 uv run ruff check .
-uv run mypy packages
+uv run mypy packages pipelines
 ```
 
 ## Profit assumptions
@@ -122,7 +124,7 @@ Boundaries that keep it honest: notebooks are research only; reusable code lives
 | --- | --- |
 | Criteo features are anonymized → no explainable segments | Explain on Hillstrom; use Criteo for scale only |
 | Profit depends on assumed value and cost | State assumptions here + in every brief; show a range |
-| Hillstrom spend is USD | Convert at a stated rate, or keep USD and label it |
+| Hillstrom spend is USD | Report in USD throughout; no conversion step |
 | Results come from past experiments, not live deployment | Frame as "estimated on held-out randomized data" |
 | Zip code can proxy for protected attributes | Router policy check + fairness note on targeting rates |
 | An LLM could state unsupported numbers or causal claims | Grounding validator; causal-language judge rubric |

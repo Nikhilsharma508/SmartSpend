@@ -14,7 +14,8 @@ Run everything from the repo root with `uv`.
 
 ```bash
 uv sync                                        # create .venv, install (CI uses --frozen)
-uv run python pipelines/download.py            # verify raw CSV SHA-256; --fetch to download
+uv run python pipelines/download.py            # fetch raw CSV if missing, then verify
+                                               #   --verify-only: no network; --force: re-download
 uv run ruff check .                            # lint (line-length 100)
 uv run mypy packages pipelines                 # typecheck (scope is packages + pipelines only)
 uv run pytest                                  # all tests
@@ -73,6 +74,13 @@ Verified against the committed raw file; each one has bitten or would bite an ag
 ## Conventions
 
 - Notebooks are research only; anything reused moves into `packages/`.
+- **Keep `docs/concepts.md` in sync.** When a notebook or script introduces a term,
+  a metric or a result, add it to that file in the same change — definitions in the
+  numbered sections, values in the findings ledger. It is the canonical concept +
+  numbers doc; notebooks only explain briefly and link back.
+- `research/notebooks/` is split by concern: `01_hillstrom_eda` is descriptive only,
+  `02_hillstrom_randomization_ate` introduces the causal vocabulary (arm, SMD, ATE).
+  Keep causal concepts out of `01`.
 - ruff ignores `E402`/`E401`/`I001` in `*.ipynb` because cells bootstrap `sys.path` before
   importing project packages — do not "fix" that ordering.
 - mypy runs with `ignore_missing_imports = true` and `files = ["packages", "pipelines"]`;

@@ -1,6 +1,7 @@
 """Hillstrom MineThatData e-mail experiment: loading and cleaning.
 
-See ``docs/datasets/hillstrom.md`` for the full structured data description.
+See ``docs/datasets/hillstrom.md`` for the structured data description and
+``docs/concepts.md`` for the vocabulary used here (arm, treatment, control).
 
 Typical use::
 
@@ -12,6 +13,7 @@ Typical use::
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pandas as pd
@@ -23,6 +25,12 @@ import pandas as pd
 RAW_FILENAME = (
     "Kevin_Hillstrom_MineThatData_E-MailAnalytics_DataMiningChallenge_2008.03.20.csv"
 )
+
+#: Canonical source of the raw CSV. The file has been byte-stable since 2008.
+RAW_SOURCE_URL = "http://www.minethatdata.com/" + RAW_FILENAME
+
+#: SHA-256 of the canonical file. Pins *content*, not just shape: a re-encoded or
+#: truncated download can match on row count and column names and still be wrong.
 RAW_SHA256 = "0e5893329d8b93cefecc571777672028290ab69865718020c78c7284f291aece"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -38,7 +46,8 @@ ARM_CONTROL = "No E-Mail"
 ARM_LABELS = {"mens": ARM_MENS, "womens": ARM_WOMENS}
 
 #: Pre-treatment covariates to be used as model features.
-#: ``history_segment`` is deliberately excluded (collinear with ``history``).
+#: ``history_segment`` is deliberately excluded (collinear with ``history``);
+#: notebook 01 shows the correlation behind that call.
 FEATURES = [
     "recency",
     "history",
@@ -58,47 +67,45 @@ NUMERIC_FEATURES = ["recency", "history", "mens", "womens", "newbie"]
 #: Outcome columns, in increasing order of rarity / cost to model.
 OUTCOMES = ["visit", "conversion", "spend"]
 
-#: Columns that must never leak into the feature matrix.
+#: Columns present in the frame returned by :func:`fetch_hillstrom` that must
+#: never be used as features: the treatment assignment (``segment``) and the
+#: derived treatment indicator (``treatment``), plus the three post-treatment
+#: outcomes. Notebook 01 states the evidence for each verdict.
 LEAKY_COLUMNS = ["segment", "treatment", "visit", "conversion", "spend"]
-
-#: Source-data typo present in all 28,776 rows; corrected when ``normalize`` is set.
-ZIP_TYPO = "Surburban"
-ZIP_TYPO_FIX = "Suburban"
-
-#: Ordinal ordering of the ``history_segment`` buckets.
-HISTORY_SEGMENT_ORDER = [
-    "1) $0 - $100",
-    "2) $100 - $200",
-    "3) $200 - $350",
-    "4) $350 - $500",
-    "5) $500 - $750",
-    "6) $750 - $1,000",
-    "7) $1,000 +",
-]
 
 
 # --------------------------------------------------------------------------- #
 # Loading
 # --------------------------------------------------------------------------- #
-def verify_raw(path: Path | None = None) -> str:
-    """Return the SHA-256 of the raw CSV, warning if it differs from the pinned value."""
-    import hashlib
+def raw_sha256(path: Path | None = None) -> str:
+    """SHA-256 of the raw CSV, read in chunks.
 
+    Raises ``FileNotFoundError`` if the file is absent. Chunked so a future
+    Criteo-sized file does not have to be held in memory.
+    """
     path = path or RAW_PATH
     if not path.exists():
         raise FileNotFoundError(
             f"Raw Hillstrom CSV not found at {path}.\n"
-            "Run `python pipelines/download.py` or place the file in data/raw/."
+            "Run `uv run python pipelines/download.py` to fetch it."
         )
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    return digest
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_raw(path: Path | None = None) -> bool:
+    """True if the raw CSV matches :data:`RAW_SHA256` byte-for-byte."""
+    return raw_sha256(path) == RAW_SHA256
 
 
 def load_hillstrom_raw(path: Path | None = None) -> pd.DataFrame:
     """Read the raw CSV untouched (no dtype coercion, no renames)."""
     path = path or RAW_PATH
-    # keep_default_na=False would turn blanks into ""; the file has no blanks,
-    # so default NA handling is fine and safer for ints.
+    # The file has no blank fields, so default NA handling is safe for the
+    # integer indicators and does not introduce surprises.
     return pd.read_csv(path)
 
 
@@ -117,9 +124,10 @@ def fetch_hillstrom(
         ``"mens"`` or ``"womens"``. The chosen e-mail arm is kept as the treated
         group and ``No E-Mail`` becomes the control; rows from the other e-mail
         arm are dropped so the experiment stays binary. Use ``arm="multi"`` to
-        keep all three arms and skip the ``treatment`` column.
+        keep all three arms (no ``treatment`` column is added).
     normalize_zip_spelling:
-        Fix the source typo ``Surburban`` -> ``Suburban``.
+        Fix the source typo ``Surburban`` -> ``Suburban``. The typo is surfaced
+        in notebook 01; this flag exists so the fix is explicit and reversible.
     as_category:
         Cast ``zip_code``, ``channel`` and ``segment`` to pandas ``category``.
     path:
@@ -137,22 +145,15 @@ def fetch_hillstrom(
 
     df = load_hillstrom_raw(path)
 
-    # Sanity: shape and columns must match the documented schema.
-    expected = {
-        "recency", "history_segment", "history", "mens", "womens",
-        "zip_code", "newbie", "channel", "segment", "visit", "conversion", "spend",
-    }
+    # Schema gate, derived from the constants above so a rename cannot drift.
+    expected = set(FEATURES) | set(OUTCOMES) | {"history_segment", "segment"}
     missing = expected - set(df.columns)
     if missing:
         raise ValueError(f"Raw Hillstrom CSV is missing columns: {sorted(missing)}")
 
     if normalize_zip_spelling:
-        df["zip_code"] = df["zip_code"].replace({ZIP_TYPO: ZIP_TYPO_FIX})
-
-    # history_segment -> ordered category (kept for EDA, excluded from FEATURES).
-    df["history_segment"] = pd.Categorical(
-        df["history_segment"], categories=HISTORY_SEGMENT_ORDER, ordered=True
-    )
+        # Source typo present in 28,776 rows; shown in notebook 01.
+        df["zip_code"] = df["zip_code"].replace({"Surburban": "Suburban"})
 
     if arm in {"mens", "womens"}:
         treated_arm = ARM_LABELS[arm]
@@ -160,7 +161,7 @@ def fetch_hillstrom(
         df["treatment"] = (df["segment"] == treated_arm).astype("int8")
 
     if as_category:
-        for col in ["zip_code", "channel", "segment"]:
+        for col in [*CATEGORICAL_FEATURES, "segment"]:
             df[col] = df[col].astype("category")
 
     df = df.reset_index(drop=True)
@@ -168,13 +169,12 @@ def fetch_hillstrom(
     # Documented invariants: fail loudly if the data drifts.
     if not df["spend"].ge(0).all():
         raise ValueError("Negative spend found; unexpected.")
-    if arm in {"mens", "womens"}:
-        n_conv = int(df["conversion"].sum())
-        n_spend = int((df["spend"] > 0).sum())
-        if n_conv != n_spend:
-            raise ValueError(
-                f"Expected spend>0 exactly when conversion==1, got {n_conv} vs {n_spend}."
-            )
+    n_conv = int(df["conversion"].sum())
+    n_spend = int((df["spend"] > 0).sum())
+    if n_conv != n_spend:
+        raise ValueError(
+            f"Expected spend>0 exactly when conversion==1, got {n_conv} vs {n_spend}."
+        )
     return df
 
 
@@ -182,17 +182,20 @@ def fetch_hillstrom(
 # Quick summaries
 # --------------------------------------------------------------------------- #
 def arm_summary(df: pd.DataFrame, treatment_col: str = "segment") -> pd.DataFrame:
-    """Per-arm counts, outcome rates and mean spend (the Day-1 descriptive table)."""
+    """Per-arm counts and mean outcome (the Day-1 descriptive table).
+
+    Columns are ``arm``, ``n``, ``share`` and ``mean_<outcome>`` for every entry
+    in :data:`OUTCOMES`. For the binary outcomes ``mean_visit`` and
+    ``mean_conversion`` are the rates.
+    """
     rows = []
-    for arm, g in df.groupby(treatment_col, observed=True):
-        rows.append(
-            {
-                "arm": str(arm),
-                "n": len(g),
-                "share": len(g) / len(df),
-                "visit_rate": g["visit"].mean(),
-                "conversion_rate": g["conversion"].mean(),
-                "mean_spend": g["spend"].mean(),
-            }
-        )
+    for arm, group in df.groupby(treatment_col, observed=True):
+        row: dict[str, object] = {
+            "arm": str(arm),
+            "n": len(group),
+            "share": len(group) / len(df),
+        }
+        for outcome in OUTCOMES:
+            row[f"mean_{outcome}"] = group[outcome].mean()
+        rows.append(row)
     return pd.DataFrame(rows).sort_values("arm").reset_index(drop=True)
