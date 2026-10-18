@@ -33,6 +33,14 @@ from packages.datasets.hillstrom import CATEGORICAL_FEATURES, FEATURES, NUMERIC_
 DEFAULT_TEST_SIZE = 0.2
 DEFAULT_VAL_SIZE = 0.2  # taken out of the 80% train remainder -> 64/16/20
 
+#: Above this many unique values an outcome is treated as continuous and binned
+#: into quantile strata for the split label. Binary outcomes (visit,
+#: conversion) sit far below it; spend (578 distinct values) sits far above.
+MAX_STRATA_FROM_OUTCOME = 20
+
+#: Number of quantile bins used to stratify a continuous outcome.
+N_STRATA_BINS = 10
+
 
 def build_design(
     df: pd.DataFrame,
@@ -128,9 +136,24 @@ def make_splits(
     if not 0 <= val_size < 1:
         raise ValueError(f"val_size must be in [0, 1), got {val_size}")
 
-    # Joint label: each unique (treatment, outcome) pair becomes its own stratum.
+    # Joint stratification label. For a discrete outcome (visit, conversion)
+    # each unique (treatment, outcome) pair is its own stratum, which keeps the
+    # treated:control converter ratio stable across folds. A *continuous*
+    # outcome (spend) has ~hundreds of unique values, so treating each as a
+    # stratum leaves most with a single member and crashes train_test_split —
+    # so it is binned into quantile buckets for the label only. The binning
+    # touches just the stratification string; the y values used for training
+    # stay continuous and unmodified.
+    y_arr = np.asarray(y)
+    n_unique = len(np.unique(y_arr))
+    if n_unique > MAX_STRATA_FROM_OUTCOME:
+        # Quantile bins collapse ties correctly; duplicates in edges (from a
+        # zero-inflated column like spend) are dropped by qcut.
+        y_label = pd.qcut(y_arr, q=min(N_STRATA_BINS, n_unique), labels=False, duplicates="drop")
+    else:
+        y_label = y_arr
     strat = pd.Series(
-        np.asarray(t).astype(str) + "_" + np.asarray(y).astype(str), index=X.index
+        np.asarray(t).astype(str) + "_" + np.asarray(y_label).astype(str), index=X.index
     )
 
     X_temp, X_test, y_temp, y_test, t_temp, t_test, s_temp, _s_test = train_test_split(

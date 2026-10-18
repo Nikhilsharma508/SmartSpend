@@ -99,25 +99,47 @@ class _CausalmlModel:
         # full dependency graph (it is slow to import).
         from causalml.inference.meta import (
             BaseSClassifier,
+            BaseSRegressor,
             BaseTClassifier,
+            BaseTRegressor,
             BaseXClassifier,
+            BaseXRegressor,
         )
 
         self.name = name
         self.continuous = continuous
-        # For a continuous target the base learners must be regressors.
+        # A continuous target (spend) needs the *Regressor meta-learners, not
+        # just regressor base learners: the Classifier variants call
+        # predict_proba internally and crash on a continuous outcome. Only the
+        # X-learner's effect stage is a regressor regardless, since it always
+        # fits continuous imputed effects.
+        if continuous:
+            s_cls, t_cls, x_cls = BaseSRegressor, BaseTRegressor, BaseXRegressor
+        else:
+            s_cls, t_cls, x_cls = BaseSClassifier, BaseTClassifier, BaseXClassifier
         base = _reg if continuous else _clf
         if name == "s":
-            self._model = BaseSClassifier(base(random_state))
+            self._model = s_cls(base(random_state))
         elif name == "t":
-            self._model = BaseTClassifier(base(random_state), base(random_state))
+            self._model = t_cls(base(random_state), base(random_state))
         elif name == "x":
-            self._model = BaseXClassifier(
-                outcome_learner=base(random_state),
-                # The X-learner's effect stage always fits continuous effects,
-                # so it is a regressor even for a binary outcome.
-                effect_learner=_reg(random_state),
-            )
+            # The two X-learner variants take different kwarg names: the
+            # Classifier wants outcome_learner/effect_learner, while the
+            # Regressor wants learner= for the outcome plus separate
+            # control/treatment effect learners (there is no single
+            # effect_learner kwarg). Both effect stages are regressors, since
+            # they fit continuous imputed effects either way.
+            if continuous:
+                self._model = x_cls(
+                    learner=base(random_state),
+                    control_effect_learner=_reg(random_state),
+                    treatment_effect_learner=_reg(random_state),
+                )
+            else:
+                self._model = x_cls(
+                    outcome_learner=base(random_state),
+                    effect_learner=_reg(random_state),
+                )
         else:  # pragma: no cover - guarded by make_learner
             raise ValueError(f"{name!r} is not a causalml meta-learner")
         self._is_classifier = not continuous

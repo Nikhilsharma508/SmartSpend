@@ -55,6 +55,31 @@ def test_make_splits_stratifies_on_treatment_x_outcome(hillstrom_binary):
     assert max(rates) - min(rates) < 0.005
 
 
+def test_make_splits_handles_continuous_outcome():
+    """A continuous target (spend) has hundreds of unique values, so treating
+    each as its own stratum would leave most strata with one member and crash
+    train_test_split. It must be binned into quantile strata instead, keeping
+    the treatment rate stable across folds. Regression test for that bug."""
+    df = fetch_hillstrom("mens")
+    X, y, t = build_features(df, target="spend")
+
+    assert y.nunique() > 20  # genuinely continuous, unlike visit/conversion
+    splits = make_splits(X, y, t, random_state=0)
+
+    assert set(splits) == {"train", "val", "test"}
+    total = len(X)
+    assert len(splits["test"][0]) == pytest.approx(0.2 * total, abs=5)
+    assert len(splits["val"][0]) == pytest.approx(0.16 * total, abs=5)
+
+    # Treatment rate must be near-identical in every fold (stratified).
+    rates = [splits[name][2].mean() for name in ("train", "val", "test")]
+    assert max(rates) - min(rates) < 0.01
+
+    # And the spend distribution must be preserved, not distorted by binning.
+    train_mean = splits["train"][1].mean()
+    assert train_mean == pytest.approx(y.mean(), rel=0.1)
+
+
 def test_make_splits_no_row_overlap(hillstrom_binary):
     X, y, t = build_features(hillstrom_binary, target="visit")
     splits = make_splits(X, y, t, random_state=0)
