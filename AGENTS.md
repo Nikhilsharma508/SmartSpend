@@ -45,6 +45,10 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
   `LEAKY_COLUMNS`, `RAW_SHA256`) is [`packages/datasets/hillstrom.py`](packages/datasets/hillstrom.py);
   use it rather than `sklift.datasets.fetch_hillstrom`. Its Appendix A holds the original
   challenge prose verbatim — do not re-wrap that block.
+- **Figures**: every plot a notebook produces goes through
+  [`packages/plotting.py`](packages/plotting.py) `save_fig(fig, name)` into
+  `docs/figures/<name>.png` (committed), named in snake_case so it reads as a filename.
+  Read them straight from that folder to review results; notebooks link back to each file.
 - **Concepts and every measured number** live in [`docs/concepts.md`](docs/concepts.md).
 - **Profit assumptions** live in [`configs/business_assumptions.yaml`](configs/business_assumptions.yaml)
   (single source; the copilot reads it) and mirror into the README profit table.
@@ -55,9 +59,9 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
   notebook bootstraps `sys.path`). Running a script from elsewhere fails with
   `ModuleNotFoundError: No module named 'packages'`.
 - **Most of the skeleton is empty stubs.** Real code exists only in `packages/datasets/`,
-  `packages/causal/diagnostics.py`, `pipelines/download.py`, and `tests/`.
-  `packages/causal/` (rest), `packages/decision/`, `packages/copilot/`, `apps/`, `infra/`,
-  `evals/` are placeholders. Do not assume planned modules exist.
+  `packages/causal/diagnostics.py`, `packages/plotting.py`, `pipelines/download.py`, and
+  `tests/`. `packages/causal/` (rest), `packages/decision/`, `packages/copilot/`, `apps/`,
+  `infra/`, `evals/` are placeholders. Do not assume planned modules exist.
 - `data/raw/` and `data/processed/` are git-ignored (`.gitkeep` only); the raw CSV is
   fetched and checksum-verified by `pipelines/download.py`.
 
