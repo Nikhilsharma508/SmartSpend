@@ -25,8 +25,10 @@ from pathlib import Path
 from matplotlib.figure import Figure
 
 #: Committed home for every figure. Relative to the repo root so the paths are
-#: stable no matter where a notebook is opened from.
-FIGURES_DIR = Path(__file__).resolve().parents[2] / "docs" / "figures"
+#: stable no matter where a notebook is opened from. ``packages/plotting.py`` is
+#: one level below the root, so the repo root is ``parents[1]`` (not ``[2]`` —
+#: that would be the parent *of* the repo and silently write outside it).
+FIGURES_DIR = Path(__file__).resolve().parents[1] / "docs" / "figures"
 
 #: Guard against typo-ed names producing stray files (``"day2 qini"`` etc.).
 _NAME_RE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")

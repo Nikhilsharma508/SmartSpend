@@ -49,22 +49,29 @@ def test_good_ranking_beats_inverted_over_most_of_the_curve():
     assert (good > bad).mean() > 0.9
 
 
-def test_perfect_qini_is_a_straight_line():
-    y, t, _ = _perfect_case()
-    depth, curve = perfect_qini(y, t, n_points=20)
+def test_perfect_qini_is_concave_and_peaks_above_models():
+    """The perfect curve must front-load effect: steep rise, then a peak above
+    the real curves, returning to the common endpoint at full depth."""
+    y, t, signal = _perfect_case()
+    depth, curve = perfect_qini(y, t, n_points=100)
+    _, good = cumulative_uplift_curve(y, signal, t, n_points=100)
 
-    assert depth[0] == 0.0 and depth[-1] == 1.0
-    # A straight line through the origin has constant slope.
-    slopes = np.diff(curve) / np.diff(depth)
-    assert np.allclose(slopes, slopes[0])
+    assert depth[0] > 0 and depth[-1] == pytest.approx(1.0)
+    # Concave: the peak sits well above the final value (unlike a straight
+    # diagonal, which would peak exactly at the end).
+    assert curve.max() > curve[-1] * 1.05
+    # And it dominates a real (merely good) ranking for most of the range.
+    assert (curve >= good - 1e-9).mean() > 0.9
 
 
-def test_perfect_qini_ends_at_total_observed_lift():
-    y, t, _ = _perfect_case()
-    _, curve = perfect_qini(y, t, n_points=20)
-    total_lift = y[t == 1].mean() - y[t == 0].mean()
+def test_perfect_qini_ends_at_same_total_as_any_ranking():
+    """At 100% targeted every ranking converges, so the perfect curve's endpoint
+    must match a real curve's endpoint."""
+    y, t, signal = _perfect_case()
+    _, perfect = perfect_qini(y, t, n_points=20)
+    _, real = cumulative_uplift_curve(y, signal, t, n_points=20)
 
-    assert curve[-1] == pytest.approx(total_lift * len(y))
+    assert perfect[-1] == pytest.approx(real[-1])
 
 
 def test_plot_qini_saves_figure(tmp_path, monkeypatch):

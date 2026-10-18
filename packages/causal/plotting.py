@@ -80,15 +80,27 @@ def perfect_qini(
 ) -> tuple[np.ndarray, np.ndarray]:
     """The reference curve for a hypothetical perfect ranking.
 
-    A perfect model targets every incremental converter first, so its curve is
-    a straight line from the origin to the total observed lift. Models are read
-    as a fraction of this line.
+    A perfect model targets every incremental converter first, so its curve
+    rises steeply, **peaks above all real models**, then returns to the same
+    endpoint at full depth (where every ranking converges). That concave shape
+    is the point: it shows how much headroom a real curve has.
+
+    The ranking is built from the observed outcome in a way that is only
+    available to an omniscient model — treated converters first, control
+    converters last — so no real model can match it.
+
+    Notes
+    -----
+    Drawing this as a straight diagonal (the lazy option) would make it
+    identical in shape to the random baseline and carry no information.
     """
     y = np.asarray(y_true, dtype=float)
     t = np.asarray(treatment, dtype=float)
-    total_lift = y[t == 1].mean() - y[t == 0].mean()
-    depth = np.linspace(0, 1, n_points)
-    return depth, depth * total_lift * len(y)
+    # +1: treated converter (target first)  -1: control converter (target last)
+    #  0: non-converter (indifferent)
+    omniscient_rank = y * (2 * t - 1)
+    depth, curve = cumulative_uplift_curve(y, omniscient_rank, t, n_points=n_points)
+    return depth, curve
 
 
 def plot_qini(

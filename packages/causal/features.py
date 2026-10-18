@@ -198,3 +198,37 @@ def one_hot_design(
     transformer.set_output(transform="pandas")
 
     return transformer, [*present_cat, *present_num]
+
+
+def encode_splits(
+    splits: dict[str, tuple[pd.DataFrame, pd.Series, pd.Series]],
+    categorical: list[str] | None = None,
+    numeric: list[str] | None = None,
+) -> tuple[dict[str, tuple[pd.DataFrame, pd.Series, pd.Series]], list[str]]:
+    """One-hot encode the feature block of every split, fitting on train only.
+
+    ``causalml`` and ``econml`` both coerce ``X`` to a float matrix internally,
+    so the categorical ``zip_code``/``channel`` columns that LightGBM accepts
+    natively would crash them. This fits the encoder on the **training** split
+    and applies it to all three, so no information leaks from val/test into the
+    encoding, and every model sees the same numeric matrix.
+
+    Returns
+    -------
+    (encoded_splits, feature_names):
+        Same structure as the input, with ``X`` replaced by the one-hot
+        matrix. ``feature_names`` is the output column order, for labelling
+        importances or policy-tree splits later.
+    """
+    if "train" not in splits:
+        raise ValueError("splits must contain a 'train' entry to fit the encoder")
+
+    transformer, _ = one_hot_design(splits["train"][0], categorical, numeric)
+    transformer.fit(splits["train"][0])
+
+    out: dict[str, tuple[pd.DataFrame, pd.Series, pd.Series]] = {}
+    for name, (X_i, y_i, t_i) in splits.items():
+        out[name] = (transformer.transform(X_i), y_i, t_i)
+
+    feature_names = list(transformer.get_feature_names_out())
+    return out, feature_names
