@@ -7,7 +7,7 @@ Legend:
 - [AGENT] = vibe-code: setup, boilerplate, wrappers, UI, tests (review each diff)
 - `[x]` = done · `[~]` = in progress · `[ ]` = not started
 
-**Progress:** Day 1 complete · Day 2 in progress · Days 3–7 not started.
+**Progress:** Day 1 ✅ · Day 2 ✅ · Days 3–7 not started.
 
 > **Figure convention.** Every plot a notebook produces is saved through
 > `packages/plotting.py::save_fig(fig, name)` into `docs/figures/<name>.png`
@@ -31,16 +31,17 @@ Done when: notebook 01 has the SMD table, ATE table and a written assumptions bl
 
 ---
 
-## Day 2 — Baselines and first uplift models
+## Day 2 — Baselines and first uplift models ✅
 
-- [ ] [AGENT] Feature pipeline: one-hot `channel` and `zip_code`, keep `segment` out of features
-- [ ] [AGENT] Train/val/test split stratified on treatment × visit; a reusable Qini/AUUC/uplift@k plotting module
-- [ ] [YOU] Response baseline: classifier on treated users only (the "CTR-style" model)
-- [ ] [YOU] S-, T- and X-learners with LightGBM on `visit`
-- [ ] [YOU] Compare Qini curves against the baseline and random; explain why the S-learner can shrink uplift toward zero
-- [ ] [YOU] Note the first finding: does the response model rank "sure things" on top?
+- [x] [AGENT] Feature pipeline: one-hot `channel` and `zip_code`, keep `segment` out of features
+- [x] [AGENT] Train/val/test split stratified on treatment × visit; a reusable Qini/AUUC/uplift@k plotting module
+- [x] [YOU] Response baseline: classifier on treated users only (the "CTR-style" model)
+- [x] [YOU] S-, T- and X-learners with LightGBM on `visit`
+- [x] [YOU] Compare Qini curves against the baseline and random; explain why the S-learner can shrink uplift toward zero
+- [x] [YOU] Note the first finding: does the response model rank "sure things" on top?
 
-Done when: one Qini plot with all models and a short written interpretation
+Done when: one Qini plot with all models and a short written interpretation ✅
+*(Notebook 03 + `docs/figures/day2_qini_models_vs_baseline.png`. Finding: uplift models do **not** cleanly beat the response baseline on `visit`; X-learner leads narrowly at Qini 0.0236, S-learner shrinks to ~0 — weak heterogeneity, sets up Day-3 DR/causal-forest challengers.)*
 
 ---
 

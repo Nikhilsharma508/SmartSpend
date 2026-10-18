@@ -22,7 +22,9 @@ that change nothing. An uplift model ranks **persuadables** highest instead.
 
 ## Project status
 
-**Day 1 (in progress)** — data, project scaffold, environment, Day-1 notebook.
+**Days 1–2 complete.**
+
+Day 1 — data, scaffold, environment, experiment validation.
 
 - [x] Repo skeleton, `uv` environment with pinned versions
 - [x] Structured dataset spec — [`docs/datasets/hillstrom.md`](docs/datasets/hillstrom.md)
@@ -35,7 +37,16 @@ that change nothing. An uplift model ranks **persuadables** highest instead.
 - [x] Binary arm chosen and justified — `mens`, beats Womens on every outcome (notebook 02 §1)
 - [x] Profit assumptions decided — 30% margin, $0.10/contact, `v` = $34.91 (notebook 02 §4)
 
-Days 2–7: see [`plan.md`](plan.md).
+Day 2 — feature pipeline, uplift metrics, response baseline + S/T/X learners.
+
+- [x] Centralized figure saving — [`packages/plotting.py`](packages/plotting.py) → `docs/figures/`
+- [x] Feature pipeline + stratified splits — [`packages/causal/features.py`](packages/causal/features.py)
+- [x] Uplift metrics (Qini AUC, AUUC, uplift@k) + random baseline — [`packages/causal/metrics.py`](packages/causal/metrics.py)
+- [x] Qini plotting — [`packages/causal/plotting.py`](packages/causal/plotting.py)
+- [x] Baselines notebook — [`research/notebooks/03_hillstrom_uplift_baselines.ipynb`](research/notebooks/03_hillstrom_uplift_baselines.ipynb)
+- [x] Qini comparison + interpretation — X-learner leads narrowly (0.0236), S-learner shrinks to ~0, response baseline is competitive (notebook 03 §4–5)
+
+Days 3–7: see [`plan.md`](plan.md).
 
 ## Datasets
 
@@ -94,14 +105,19 @@ currency. Edit `configs/business_assumptions.yaml` — the copilot reads it.
 ≈ **+$0.13 per contact** (+$131–$138 per 1,000 contacted, after send costs) at
 the assumptions above — the number every Day-2 model must beat.
 
-Filled in as the build progresses (Day 2 onwards).
+**Day 2 (notebook 03):** ranking models on `visit`, test split. The honest
+headline: uplift models do **not** cleanly beat the response baseline here, and
+the signal is weak overall. The X-learner leads narrowly; the S-learner collapses
+toward random. Full table and reading in
+[`docs/concepts.md`](docs/concepts.md).
 
-| Metric | Response model (baseline) | Best uplift model |
+| Metric | Response model (baseline) | Best uplift model (X-learner) |
 | --- | --- | --- |
-| Qini AUC | | |
-| Incremental conversions at 30% targeted | | |
-| Incremental profit per $10k spend | | |
-| Copilot numeric faithfulness (% figures traced to tools) | — | |
+| Qini AUC | 0.0199 | **0.0236** |
+| uplift@30% (incremental visits/customer) | 0.0899 | **0.1015** |
+| Incremental conversions at 30% targeted | — (Day 3) | — (Day 3) |
+| Incremental profit per $10k spend | — (Day 4) | — (Day 4) |
+| Copilot numeric faithfulness (% figures traced to tools) | — | — (Day 5–6) |
 
 ## Repo structure
 

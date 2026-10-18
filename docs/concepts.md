@@ -9,9 +9,9 @@ add it here in the same change. Definitions go in the numbered sections; results
 and metric values go in the [findings ledger](#findings-ledger). Anything that
 only lives in a notebook cell is a bug.
 
-Scope so far: Day 1 (experiment fundamentals, randomization, ATE). Later days
-append to the same structure — Qini/AUUC and calibration, the profit curve, the
-copilot's grounding rules.
+Scope so far: Day 1 (experiment fundamentals, randomization, ATE) and Day 2
+(response baseline, meta-learners, ranking metrics). Later days append to the
+same structure — calibration, the profit curve, the copilot's grounding rules.
 
 ---
 
@@ -163,6 +163,62 @@ comparison.
 
 ---
 
+## 4. Day-2 modelling and ranking metrics
+
+### Response model (the baseline)
+
+A **response model** is a plain supervised classifier trained on **treated
+customers only** to predict `P(buy | X)`. It answers "who converts after the
+e-mail?", not "who converts *because of* it?". It is the bar every uplift model
+must clear, because it is simple, well-understood, and already good at finding
+converters.
+
+Its blind spot is the project's premise: it ranks **sure things** highest (high
+`P(buy)`, low incremental effect). The check used in notebook 03 is to split the
+scored population into terciles and compare the treated-vs-control outcome gap
+in each. If the *level* rises in both arms together while the *gap* stays flat,
+the score is tracking purchasability, not persuadability.
+
+### Meta-learners (S, T, X)
+
+Meta-learners reuse any supervised model as a building block to estimate a
+per-customer uplift score. With LightGBM as the base:
+
+| Learner | Estimation | Tendency |
+| --- | --- | --- |
+| **S** (single) | One model on `[X, T]`; read off the treatment interaction | Pools all data → **shrinks uplift toward zero** |
+| **T** (two) | Fit treated and control separately; subtract predictions | Flexible, but each model sees only half the data |
+| **X** (cross) | Impute per-customer effects from T, then fit a model on them | Strong with imbalance; the effect stage needs a *regressor* |
+
+All three output a **relative ranking score**, not a probability — only the
+order matters. The S-learner's shrinkage is not a bug: with regularisation, the
+easiest way to fit `[X, T]` is to learn the dominant main effect and make the
+treatment interaction tiny, which collapses the ranking toward random.
+
+### Ranking metrics: Qini curve, AUUC, uplift@k
+
+Uplift is never observed per customer, so ranking quality is measured by
+*treated-vs-control outcomes within score buckets*:
+
+- **Qini curve** — sort by score descending, target the top *k*, and plot the
+  cumulative treated-minus-control outcome difference against targeting depth.
+  Every curve **converges at depth 1.0**, because once everyone is targeted the
+  total lift is fixed regardless of order. A **perfect** curve front-loads all
+  incremental converters (steep rise, peak, return to the common endpoint); a
+  **random** ranking sits near a shallow diagonal.
+- **Qini AUC** — area under the Qini curve, normalised by the perfect curve.
+  `0` = random, negative = worse than random.
+- **AUUC** — area under the uplift curve (the same information in raw units).
+- **uplift@k** — incremental outcome per customer when targeting only the top
+  `k` fraction. This is the number that multiplies up to a campaign total, and
+  the one the decision layer optimises.
+
+These measure **ranking**, not **effect size**. A model can rank well with
+poorly scaled scores (and vice versa); that is why Day 3 adds calibration, and
+why the model is ultimately chosen on Qini **and** profit, not on Brier score.
+
+---
+
 ## Findings ledger
 
 Accumulated results. Every number here should be reproducible from a notebook or
@@ -186,6 +242,29 @@ to this table.
 | ATE `conversion` (mens vs control) | +0.0068 [0.0050, 0.0086] | notebook 02 |
 | ATE `spend` (mens vs control) | +$0.7698 [$0.4851, $1.0545] | notebook 02 |
 | Day-1 profit baseline | ≈ +$0.13 per uniform contact (30% margin, $0.10/contact) | notebook 02 |
+
+### Hillstrom — Day 2 (ranking models on `visit`)
+
+Split: train 27,272 / val 6,818 / test 8,523, stratified on `treatment × visit`.
+Metrics are on the **test** split. Baselines: response model (treated-only
+classifier) and a seeded random ranking.
+
+| Model | Qini AUC | AUUC | uplift@10% | uplift@30% |
+| --- | --- | --- | --- | --- |
+| X-learner | **0.0236** | **0.0127** | **0.1217** | **0.1015** |
+| T-learner | 0.0201 | 0.0104 | 0.1026 | 0.0961 |
+| Response baseline | 0.0199 | 0.0096 | 0.1187 | 0.0899 |
+| Random | 0.0079 | 0.0021 | 0.0655 | 0.0713 |
+| S-learner | 0.0069 | 0.0045 | 0.1055 | 0.0834 |
+
+Findings (notebook 03):
+
+| Observation | Reading |
+| --- | --- |
+| Uplift signal is weak | Qini AUCs cluster near random; heterogeneity around the +7.76 pp ATE is small vs noise. Raising capacity moved T-learner from *below* to *even with* response, so the ceiling is set by the data, not the learner. |
+| S-learner shrinks to ~0 | Textbook failure: one model on `[X, T]` learns the main effect and makes the treatment interaction tiny, collapsing the ranking toward random. |
+| Response baseline is competitive | Its score tracks *purchasability*, and since the e-mail lifts everyone, top-purchasability customers carry much of the total outcome. The edge disappears under **profit** optimisation (sure things cost full contact for little margin) — Day 4's job. |
+| X-learner leads narrowly | Best Qini AUC (0.0236) and uplift@30% (0.1015), but the margin over response is thin — not a decisive win on one split. Motivates Day-3 DR/causal-forest challengers and the 10-seed benchmark. |
 
 ### Profit formula
 
