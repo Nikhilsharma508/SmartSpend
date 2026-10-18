@@ -33,12 +33,15 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
 - Use `git add .` followed by `git commit`. Never leave work uncommitted at the end
   of a turn.
 - One commit per logical change. Keep unrelated edits in separate commits.
-- **Notebooks have `nbstripout` installed as a git filter** (repo-local config +
-  `.git/info/attributes`). Outputs and environment metadata are stripped on commit, so
-  running a notebook never shows up as a change. Do not clear outputs by hand, and never
-  commit outputs. The filter command carries `--extra-keys "metadata.kernelspec
-  metadata.language_info"`; `nbstripout --install` alone drops that flag, so re-set it if
-  the filter is ever reinstalled.
+- **Notebooks use `nbstripout` as a repo-local git filter** (`.git/info/attributes` + local
+  git config). Outputs and environment metadata are stripped on commit, so never commit
+  outputs and never clear them by hand. `nbstripout --install` drops the `--extra-keys`
+  flag, so if the filter is ever reinstalled re-set the clean command to
+  `"<repo>/.venv/bin/python3" -m nbstripout --extra-keys "metadata.kernelspec metadata.language_info"`.
+- **After executing a notebook, `git status` lists it as modified while `git diff` is
+  empty.** That is expected, not a bug to chase: the working file really does contain
+  outputs and git compares it raw, whereas `git diff` applies the stripping filter.
+  `git add .` clears the entry without staging anything. Judge changes with `git diff`.
 
 ## Non-obvious structure
 
