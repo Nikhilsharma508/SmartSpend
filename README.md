@@ -42,7 +42,6 @@ Days 2–7: see [`plan.md`](plan.md).
 | Dataset | Rows | Treatment | Outcomes | Role |
 | --- | --- | --- | --- | --- |
 | [Hillstrom MineThatData](docs/datasets/hillstrom.md) | 64,000 | Mens / Womens e-mail / none | visit, conversion, spend | **Primary** — profit, explainability, copilot |
-| [Criteo Uplift v2.1](https://arxiv.org/abs/2111.10106) | 13,979,592 | Ad exposure (85/15) | visit, conversion | Optional, Day 7 — scale benchmark |
 
 Pinned raw Hillstrom SHA-256:
 `0e5893329d8b93cefecc571777672028290ab69865718020c78c7284f291aece`.
@@ -77,7 +76,7 @@ with a recorded reason).
 | Reporting currency | USD ($) | Hillstrom spend is already USD |
 | Gross margin on incremental spend | 30 % | retail gross-margin placeholder — assumption, not observed |
 | Cost per contact (e-mail) | 0.10 USD | assumed fixed send cost per customer |
-| Value per conversion (Criteo only) | 34.91 USD | $116.36 mean spend per converter × 30% margin |
+| Value per conversion (`v`) | 34.91 USD | $116.36 mean spend per converter × 30% margin — the conversion-route profit check |
 
 Formula used throughout:
 
@@ -128,7 +127,6 @@ Boundaries that keep it honest: notebooks are research only; reusable code lives
 
 | Risk | Mitigation |
 | --- | --- |
-| Criteo features are anonymized → no explainable segments | Explain on Hillstrom; use Criteo for scale only |
 | Profit depends on assumed value and cost | State assumptions here + in every brief; show a range |
 | Hillstrom spend is USD | Report in USD throughout; no conversion step |
 | Results come from past experiments, not live deployment | Frame as "estimated on held-out randomized data" |
@@ -137,6 +135,5 @@ Boundaries that keep it honest: notebooks are research only; reusable code lives
 
 ## References
 
-- Diemert et al., *A Large Scale Benchmark for Individual Treatment Effect Prediction and Uplift Modeling* — <https://arxiv.org/abs/2111.10106>
 - scikit-uplift docs — <https://www.uplift-modeling.com/>
 - MineThatData Hillstrom challenge (original prose: [`docs/datasets/hillstrom.md`](docs/datasets/hillstrom.md), Appendix A)

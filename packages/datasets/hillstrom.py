@@ -80,8 +80,8 @@ LEAKY_COLUMNS = ["segment", "treatment", "visit", "conversion", "spend"]
 def raw_sha256(path: Path | None = None) -> str:
     """SHA-256 of the raw CSV, read in chunks.
 
-    Raises ``FileNotFoundError`` if the file is absent. Chunked so a future
-    Criteo-sized file does not have to be held in memory.
+    Raises ``FileNotFoundError`` if the file is absent. Chunked so a very
+    large file does not have to be held in memory.
     """
     path = path or RAW_PATH
     if not path.exists():

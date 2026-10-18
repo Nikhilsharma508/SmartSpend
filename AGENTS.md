@@ -67,7 +67,7 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
   there is no conversion step.
 - **Day 6 UI is FastAPI + React** (as in `description.md`). `plan.md`'s "Streamlit campaign
   planner" is superseded.
-- **Profit assumptions are decided** (30% margin, $0.10/contact, Criteo value per
+- **Profit assumptions are decided** (30% margin, $0.10/contact, value per
   conversion $34.91) — see `configs/business_assumptions.yaml`; change only with a
   recorded reason.
 - Scikit-uplift's PyPI name is `scikit-uplift`; the import name is `sklift`.

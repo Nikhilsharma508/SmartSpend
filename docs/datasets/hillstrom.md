@@ -23,9 +23,9 @@ verified against the actual file in `data/raw/`.
 
 ### Role in UpliftIQ
 
-Hillstrom is the **primary dataset**. It carries the profit story because it records real
-`spend`, and its features are interpretable, which makes it the source for segment
-explanations and copilot demos. Criteo is a scale benchmark only.
+Hillstrom is the **only dataset** in this project. It carries the profit story because it
+records real `spend`, and its features are interpretable, which makes it the source for
+segment explanations and copilot demos.
 
 ## 2. Experiment design
 
@@ -108,9 +108,8 @@ corrupts these rows.
 | --- | --- | --- | --- |
 | `segment` | categorical | The campaign the customer received | `Mens E-Mail`, `Womens E-Mail`, `No E-Mail` |
 
-This is the **assignment** variable and the only valid treatment definition. There is no
-`exposure` column in Hillstrom (unlike Criteo), so the post-assignment contamination trap
-from the Criteo notes does not apply here.
+This is the **assignment** variable and the only valid treatment definition. Hillstrom has
+no `exposure` column, so there is no post-assignment contamination trap to avoid.
 
 ### 3.4 Post-treatment outcomes (14-day window)
 

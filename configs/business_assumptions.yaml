@@ -13,8 +13,8 @@ hillstrom:
   # Cost of sending one marketing e-mail / contacting one customer.
   cost_per_contact_usd: 0.10   # assumed per-send cost
 
-  # Value of one conversion, for datasets without spend (Criteo benchmark, Day 7).
-  # $116.36 mean spend per Hillstrom converter x margin_rate — keeps scales comparable.
+  # Value of one conversion, used by the conversion-route profit formula
+  # profit = v * Δconv − c * n. $116.36 mean spend per Hillstrom converter x margin_rate.
   value_per_conversion_usd: 34.91
 
   # Default arm for the binary experiment, chosen on Day 1 from observed lift.

@@ -42,23 +42,14 @@ Indian fintech companies such as Paytm, PhonePe and CRED, and e-commerce compani
 
 ## Datasets
 
-Two public randomized experiments: Criteo proves the method at scale, and Hillstrom carries the profit story because it records real spend.
+The project runs on one public randomized experiment, **Hillstrom MineThatData**, which carries the profit story because it records real spend.
 
 | Dataset | Rows | Treatment | Outcomes | Features | Role in project |
 | --- | --- | --- | --- | --- | --- |
-| [Criteo Uplift v2.1](https://arxiv.org/abs/2111.10106) | 13,979,592 users | Ad exposure, 85% treated / 15% control | visit (about 4.7%), conversion (about 0.29%) | 12 anonymized (f0–f11) | Scale benchmark |
+| [Criteo Uplift v2.1](https://arxiv.org/abs/2111.10106) | 13,979,592 users | Ad exposure, 85% treated / 15% control | visit (about 4.7%), conversion (about 0.29%) | 12 anonymized (f0–f11) | Scale benchmark (not used in this build) |
 | Hillstrom MineThatData | 64,000 customers | Men's email / women's email / no email | visit, conversion, spend | Interpretable: recency, history, channel, zip type | Profit, explainability, copilot demos |
 
-**Criteo pitfalls.**
-
-- **Do not use `exposure`.** It records whether the user was actually exposed, which happens after assignment. Using it as a feature or treatment breaks randomization. Use `treatment`.
-- **Model `visit` first.** Conversions are so rare that their metrics are noisy; report `conversion` as a secondary result.
-- **Handle the 85/15 imbalance.** Stratify splits on treatment and outcome together, and favor learners that cope with imbalance, such as the X-learner and DR-learner.
-- **Develop on the 10% sample.** `sklift` can load it directly; switch to the full data for final numbers.
-
 **Hillstrom notes.** Use one email arm versus no email as the main binary experiment, and check the observed lift of each arm on day 1 before choosing. The three arms also allow a "which email, if any?" multi-treatment extension. Spend gives real revenue, so profit needs only an assumed margin and contact cost.
-
-**Optional: X5 RetailHero.** Retail SMS campaign data with raw purchase history. Add it only to show feature engineering from transactions.
 
 ## System architecture
 
@@ -69,7 +60,7 @@ The architecture as a Mermaid diagram (renders on GitHub and in most Markdown vi
 ```mermaid
 flowchart TB
     subgraph OFF["Offline: causal engine, trained once"]
-        D["Experiment data<br/>Criteo 13.9M, Hillstrom 64K<br/>randomized treatment/control"] --> E["Causal engine<br/>S/T/X/DR learners, forest<br/>Qini, AUUC, calibration"]
+        D["Experiment data<br/>Hillstrom 64K<br/>randomized treatment/control"] --> E["Causal engine<br/>S/T/X/DR learners, forest<br/>Qini, AUUC, calibration"]
         E --> T["Decision tools<br/>budget optimizer, segments<br/>power analysis, model card"]
     end
     subgraph ON["Online: Campaign Copilot, per request"]
@@ -103,7 +94,7 @@ The profit formula used throughout:
 \text{profit}(k) = v \cdot \Delta\text{conv}(k) - c \cdot n(k)
 ```
 
-Here v is the value per conversion, Δconv(k) the incremental conversions from targeting the top k customers, c the cost per contact, and n(k) the number targeted. On Hillstrom, v comes from real spend; on Criteo, v and c are stated assumptions.
+Here v is the value per conversion, Δconv(k) the incremental conversions from targeting the top k customers, c the cost per contact, and n(k) the number targeted. On Hillstrom, v comes from real spend; the margin-route alternative multiplies incremental spend by the gross margin.
 
 ## GenAI layer: Campaign Copilot
 
@@ -200,7 +191,7 @@ A Python backend and ML packages behind a FastAPI service, with a React frontend
 
 | Layer | Tools | Used for |
 | --- | --- | --- |
-| Data and metrics | `scikit-uplift` (sklift) | Loading Hillstrom and Criteo; Qini, AUUC, uplift@k |
+| Data and metrics | `scikit-uplift` (sklift) | Loading Hillstrom; Qini, AUUC, uplift@k |
 | Causal models | `causalml`, `econml`, `lightgbm` | Meta-learners, DR-learner, causal forest, policy-tree interpreter |
 | Experimentation | `statsmodels` | Power analysis and sample sizing |
 | ML lifecycle | MLflow | Experiment tracking, model registry; the API loads only the registered champion |
@@ -235,7 +226,7 @@ upliftiq/
 │   ├── decision/                 # optimizer, power analysis, policy-tree segments
 │   └── copilot/                  # router, planner, tools, writer, validator, providers
 ├── data/                         # git-ignored; rebuilt by pipelines/download.py
-│   ├── raw/                      # Hillstrom and Criteo downloads, untouched
+│   ├── raw/                      # Hillstrom download, untouched
 │   └── processed/                # cleaned, split Parquet files
 ├── pipelines/
 │   ├── download.py               # fetches the raw datasets and checksums them
@@ -260,38 +251,38 @@ The causal engine is finished by day 4 so the copilot is built on stable tools, 
 
 | Day | Focus | Done when |
 | --- | --- | --- |
-| 1 | Data, randomization checks, ATE, repo and README skeleton | SMD table and ATE with intervals for both datasets |
-| 2 | Response baseline and S/T/X learners | Qini curves for all models on the 10% Criteo sample and Hillstrom |
+| 1 | Data, randomization checks, ATE, repo and README skeleton | SMD table and ATE with intervals |
+| 2 | Response baseline and S/T/X learners | Qini curves for all models on Hillstrom |
 | 3 | DR-learner, causal forest, calibration, stability runs | Benchmark table with mean and spread across seeds |
 | 4 | Budget optimizer, profit curves, policy-tree segments, power analysis | All five copilot tools callable and unit-tested |
 | 5 | Copilot: router, planner, writer, grounding validator | End-to-end brief for the four use cases |
 | 6 | Copilot eval set and ablation; React frontend and FastAPI service | Eval report with all copilot metrics |
-| 7 | Full-data Criteo run, README results, model card, demo video | Headline results table filled in |
+| 7 | README results, model card, demo video | Headline results table filled in |
 
 ## Getting started
 
-The first script loads Criteo, trains a T-learner and the response baseline, and compares them on the same Qini metric.
+The first script loads Hillstrom, trains a T-learner and the response baseline, and compares them on the same Qini metric.
 
 ```python
-from sklift.datasets import fetch_criteo
-from sklift.models import TwoModels
+from packages.datasets.hillstrom import fetch_hillstrom
+from causalml.inference.meta import BaseTClassifier
 from sklift.metrics import qini_auc_score, uplift_at_k
 from sklearn.model_selection import train_test_split
 from lightgbm import LGBMClassifier
 
-# 10% sample for development; switch to full data on day 7
-X, y, t = fetch_criteo(target_col="visit", treatment_col="treatment",
-                       percent10=True, return_X_y_t=True)
+# binary arm: Mens E-Mail vs No E-Mail, target = visit
+df = fetch_hillstrom(target="visit", treated_arm="mens")
+X = df.drop(columns=["visit", "conversion", "spend", "segment", "treatment"])
+y, t = df["visit"], df["treatment"]
 
 strat = y.astype(str) + "_" + t.astype(str)
 X_tr, X_te, y_tr, y_te, t_tr, t_te = train_test_split(
     X, y, t, test_size=0.3, stratify=strat, random_state=42)
 
 # Uplift: T-learner
-tm = TwoModels(estimator_trmnt=LGBMClassifier(),
-               estimator_ctrl=LGBMClassifier(), method="vanilla")
-tm.fit(X_tr, y_tr, t_tr)
-uplift = tm.predict(X_te)
+tm = BaseTClassifier(LGBMClassifier(), LGBMClassifier())
+tm.fit(y_tr.values, t_tr.values, X=X_tr.values)
+uplift = tm.predict(X_te.values)
 
 # Baseline: response model trained on treated users only
 resp = LGBMClassifier().fit(X_tr[t_tr == 1], y_tr[t_tr == 1])
@@ -310,7 +301,7 @@ The copilot's contract starts as a typed scenario, so the LLM can only fill fiel
 from pydantic import BaseModel, Field
 
 class Scenario(BaseModel):
-    dataset: str = Field(pattern="^(criteo|hillstrom)$")
+    dataset: str = Field(pattern="^hillstrom$")
     budget_inr: float = Field(gt=0)
     cost_per_contact_inr: float = Field(gt=0)
     value_per_conversion_inr: float | None = None  # None -> documented default
@@ -332,7 +323,6 @@ The main limits are about what offline experiment data can prove; each is stated
 
 | Risk or limitation | Mitigation |
 | --- | --- |
-| Criteo features are anonymized, so segments cannot be explained | Use Hillstrom for explanations and copilot demos; use Criteo for scale results only |
 | Profit depends on assumed value and cost | State assumptions in the brief and README; show profit across a range of values |
 | Hillstrom spend is in USD | Convert at a stated rate for ₹ display, or keep USD and label it |
 | Results are from past experiments, not live deployment | Frame impact as "estimated on held-out randomized data"; the test-design tool plans the live validation |
@@ -342,7 +332,6 @@ The main limits are about what offline experiment data can prove; each is stated
 
 **References.**
 
-- Diemert et al., [A Large Scale Benchmark for Individual Treatment Effect Prediction and Uplift Modeling](https://arxiv.org/abs/2111.10106): defines the Criteo dataset and evaluation metrics.
 - [scikit-uplift documentation](https://www.uplift-modeling.com/): dataset loaders, metrics, and a guide to meta-learners.
 - [OpenAI Decisions API guide](https://developers.openai.com/api/docs/guides/decisions): question types, probabilities and limits.
 
