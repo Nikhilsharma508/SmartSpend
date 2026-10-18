@@ -26,6 +26,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=2.4.0",
+    "nbstripout>=0.9.1",
     "pytest>=9.1.1",
     "ruff>=0.17.1",
 ]

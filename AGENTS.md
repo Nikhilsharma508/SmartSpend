@@ -33,6 +33,12 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
 - Use `git add .` followed by `git commit`. Never leave work uncommitted at the end
   of a turn.
 - One commit per logical change. Keep unrelated edits in separate commits.
+- **Notebooks have `nbstripout` installed as a git filter** (repo-local config +
+  `.git/info/attributes`). Outputs and environment metadata are stripped on commit, so
+  running a notebook never shows up as a change. Do not clear outputs by hand, and never
+  commit outputs. The filter command carries `--extra-keys "metadata.kernelspec
+  metadata.language_info"`; `nbstripout --install` alone drops that flag, so re-set it if
+  the filter is ever reinstalled.
 
 ## Non-obvious structure
 
