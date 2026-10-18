@@ -18,7 +18,8 @@ uv run python pipelines/download.py            # fetch raw CSV if missing, then 
                                                #   --verify-only: no network; --force: re-download
 uv run ruff check .                            # lint (line-length 100)
 uv run mypy packages pipelines                 # typecheck (scope is packages + pipelines only)
-uv run pytest                                  # all tests
+uv run pytest                                  # all tests (skip, not fail, if raw CSV absent;
+                                               #   first run ~35s, warm runs ~2s)
 uv run pytest tests/test_hillstrom.py::test_raw_shape_and_columns   # single test
 uv run jupyter lab                             # open research/notebooks/
 uv add <pkg>        /  uv add --dev <pkg>      # change deps — never hand-edit pyproject deps
@@ -28,23 +29,25 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
 
 ## Git
 
-- Commit automatically after each logical change. Do not wait to be asked and do not
-  ask for permission first.
-- Use `git add .` followed by `git commit`. Never leave work uncommitted at the end
-  of a turn.
-- One commit per logical change. Keep unrelated edits in separate commits.
 - **Notebooks use `nbstripout` as a repo-local git filter** (`.git/info/attributes` + local
   git config). Outputs and environment metadata are stripped on commit, so never commit
   outputs and never clear them by hand. `nbstripout --install` drops the `--extra-keys`
   flag, so if the filter is ever reinstalled re-set the clean command to
   `"<repo>/.venv/bin/python3" -m nbstripout --extra-keys "metadata.kernelspec metadata.language_info"`.
 - **After executing a notebook, `git status` lists it as modified while `git diff` is
-  empty.** That is expected, not a bug to chase: the working file really does contain
-  outputs and git compares it raw, whereas `git diff` applies the stripping filter.
-  `git add .` clears the entry without staging anything. Judge changes with `git diff`.
+  empty.** That is expected, not a bug to chase.
 
-## Non-obvious structure
+## Where things live
 
+- **Hillstrom dataset facts** (columns, quirks, checksum, leakage rules) live in
+  [`docs/datasets/hillstrom.md`](docs/datasets/hillstrom.md) — read it instead of
+  rediscovering the data. The loader that encodes those facts (`FEATURES`,
+  `LEAKY_COLUMNS`, `RAW_SHA256`) is [`packages/datasets/hillstrom.py`](packages/datasets/hillstrom.py);
+  use it rather than `sklift.datasets.fetch_hillstrom`. Its Appendix A holds the original
+  challenge prose verbatim — do not re-wrap that block.
+- **Concepts and every measured number** live in [`docs/concepts.md`](docs/concepts.md).
+- **Profit assumptions** live in [`configs/business_assumptions.yaml`](configs/business_assumptions.yaml)
+  (single source; the copilot reads it) and mirror into the README profit table.
 - **Python 3.11 is pinned** (`.python-version`). Do not use the system `python3` (3.13):
   `causalml` and `econml` have no 3.13 support, which is why the pin exists.
 - **`packages/` is a plain directory tree, not an installed distribution.** `import
@@ -55,30 +58,8 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
   `packages/causal/diagnostics.py`, `pipelines/download.py`, and `tests/`.
   `packages/causal/` (rest), `packages/decision/`, `packages/copilot/`, `apps/`, `infra/`,
   `evals/` are placeholders. Do not assume planned modules exist.
-- `configs/business_assumptions.yaml` is the single source of profit assumptions; the
-  copilot is meant to read it. Its `margin_rate` / `cost_per_contact_usd` are still
-  `# DECIDE`.
-- `data/raw/` and `data/processed/` are git-ignored (`.gitkeep` only). The raw CSV is
-  checksum-pinned in `packages/datasets/hillstrom.py` (`RAW_SHA256`).
-
-## Hillstrom data gotchas
-
-Verified against the committed raw file; each one has bitten or would bite an agent:
-
-- There is **no `exposure` column** — that pitfall is Criteo-only. Treatment is `segment`.
-- **`spend > 0` iff `conversion == 1`** (exactly 578 rows). The loader raises if this breaks.
-- `history_segment` buckets 6 and 7 **contain commas** (`"6) $750 - $1,000"`). Parse with a
-  real CSV reader; naive comma-splitting silently corrupts those rows.
-- The source has a typo, **`Surburban`** (28,776 rows); the loader normalizes it to
-  `Suburban` by default.
-- Never let `segment`, `visit`, `conversion` or `spend` into the feature matrix
-  (`LEAKY_COLUMNS`). `history_segment` is also excluded from `FEATURES` (collinear with
-  `history`).
-- **Use the project's loader, not `sklift.datasets.fetch_hillstrom`.** The sklift one
-  downloads over the network by default; ours is offline, checksum-verified, and keeps all
-  three raw arm labels. Avoid "de-duplicating" the two.
-- Tests **skip** (not fail) when the raw CSV is absent. The first `pytest` run takes ~35s
-  (lightgbm/scipy import cost); warm runs are ~2s.
+- `data/raw/` and `data/processed/` are git-ignored (`.gitkeep` only); the raw CSV is
+  fetched and checksum-verified by `pipelines/download.py`.
 
 ## Decisions that override the docs
 
@@ -86,6 +67,9 @@ Verified against the committed raw file; each one has bitten or would bite an ag
   there is no conversion step.
 - **Day 6 UI is FastAPI + React** (as in `description.md`). `plan.md`'s "Streamlit campaign
   planner" is superseded.
+- **Profit assumptions are decided** (30% margin, $0.10/contact, Criteo value per
+  conversion $34.91) — see `configs/business_assumptions.yaml`; change only with a
+  recorded reason.
 - Scikit-uplift's PyPI name is `scikit-uplift`; the import name is `sklift`.
 
 ## Conventions
@@ -102,5 +86,3 @@ Verified against the committed raw file; each one has bitten or would bite an ag
   importing project packages — do not "fix" that ordering.
 - mypy runs with `ignore_missing_imports = true` and `files = ["packages", "pipelines"]`;
   tests and notebooks are intentionally unchecked.
-- `docs/datasets/hillstrom.md` is the verified dataset reference; Appendix A holds the
-  original challenge prose verbatim. Do not re-wrap that block.

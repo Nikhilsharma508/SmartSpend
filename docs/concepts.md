@@ -181,8 +181,11 @@ to this table.
 | `spend > 0` ⟺ `conversion == 1` | 578 rows, exactly | notebook 01 |
 | Spend among converters | min $29.99, mean $116.36, max $499.00 | notebook 01 |
 | `zip_code` typo | `Surburban` in 28,776 rows | notebook 01 |
-| Binary arm (`mens`) | 42,613 rows, 0 SMD flagged | notebooks 01–02 |
-| ATE, `mens` vs control | see notebook 02 | notebook 02 |
+| Binary arm (`mens`) | 42,613 rows, 0 of 11 SMD flagged, largest \|SMD\| 0.014 | notebooks 01–02 |
+| ATE `visit` (mens vs control) | +0.0766 [0.0700, 0.0832] | notebook 02 |
+| ATE `conversion` (mens vs control) | +0.0068 [0.0050, 0.0086] | notebook 02 |
+| ATE `spend` (mens vs control) | +$0.7698 [$0.4851, $1.0545] | notebook 02 |
+| Day-1 profit baseline | ≈ +$0.13 per uniform contact (30% margin, $0.10/contact) | notebook 02 |
 
 ### Profit formula
 
@@ -194,10 +197,15 @@ profit(k) = v · Δconv(k) − c · n(k)
 | --- | --- |
 | `k` | Targeting depth (top-k customers, ranked by predicted uplift) |
 | `Δconv(k)` | Incremental conversions caused by targeting the top k |
+| `Δspend(k)` | Incremental spend caused by targeting the top k |
 | `v` | Value per conversion |
 | `c` | Cost per contact |
 | `n(k)` | Number contacted |
+| `margin` | Gross margin applied to incremental spend (30%) |
 
-`v` and `c` must share a currency (USD here). Values live in
-`configs/business_assumptions.yaml` and are still to be decided — see the README
-profit-assumptions table.
+`v` and `c` must share a currency (USD here). On Hillstrom the same profit can
+also be computed directly from `spend` — `profit(k) = margin · Δspend(k) − c · n(k)`
+— because `v` was defined as `margin × mean spend per converter`; the two routes
+agree (within ~5%, rounding of `Δconv`). Values live in
+`configs/business_assumptions.yaml` (decided Day 1: `margin` 30%, `c` $0.10,
+`v` $34.91) and mirror into the README profit-assumptions table.

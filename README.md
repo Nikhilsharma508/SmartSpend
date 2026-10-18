@@ -30,10 +30,10 @@ that change nothing. An uplift model ranks **persuadables** highest instead.
 - [x] Hillstrom loader (`packages/datasets/hillstrom.py`) + experiment diagnostics
 - [x] EDA notebook — [`research/notebooks/01_hillstrom_eda.ipynb`](research/notebooks/01_hillstrom_eda.ipynb)
 - [x] Randomization + ATE notebook — [`research/notebooks/02_hillstrom_randomization_ate.ipynb`](research/notebooks/02_hillstrom_randomization_ate.ipynb)
-- [ ] **TODO [YOU]** SMD table reviewed; flags explained
-- [ ] **TODO [YOU]** ATE table (95% CI) reviewed and interpreted
-- [ ] **TODO [YOU]** Binary arm chosen and justified
-- [ ] **TODO [YOU]** Profit assumptions confirmed in `configs/business_assumptions.yaml`
+- [x] SMD table reviewed — 0 of 11 flagged, largest `|SMD|` 0.014 (notebook 02 §2)
+- [x] ATE table (95% CI) interpreted — `visit` +7.66 pp, `conversion` +0.68 pp, `spend` +$0.77 (notebook 02 §3)
+- [x] Binary arm chosen and justified — `mens`, beats Womens on every outcome (notebook 02 §1)
+- [x] Profit assumptions decided — 30% margin, $0.10/contact, `v` = $34.91 (notebook 02 §4)
 
 Days 2–7: see [`plan.md`](plan.md).
 
@@ -68,14 +68,16 @@ uv run mypy packages pipelines
 
 ## Profit assumptions
 
-Stated openly, since every profit figure depends on them. **Decide these on Day 1.**
+Stated openly, since every profit figure depends on them. **Decided on Day 1**
+(notebook 02 §4; rationale in `configs/business_assumptions.yaml` — change only
+with a recorded reason).
 
 | Assumption | Value | Notes |
 | --- | --- | --- |
 | Reporting currency | USD ($) | Hillstrom spend is already USD |
-| Gross margin on incremental spend | _TBD_ % | spend → profit |
-| Cost per contact (e-mail) | _TBD_ USD | fixed send cost per customer |
-| Value per conversion (Criteo only) | _TBD_ USD | Criteo records no spend |
+| Gross margin on incremental spend | 30 % | retail gross-margin placeholder — assumption, not observed |
+| Cost per contact (e-mail) | 0.10 USD | assumed fixed send cost per customer |
+| Value per conversion (Criteo only) | 34.91 USD | $116.36 mean spend per converter × 30% margin |
 
 Formula used throughout:
 
@@ -88,6 +90,10 @@ top k, `c` = cost per contact, `n(k)` = number targeted. `v` and `c` must share 
 currency. Edit `configs/business_assumptions.yaml` — the copilot reads it.
 
 ## Headline results
+
+**Day-1 baseline (notebook 02):** uniformly contacting the `mens` arm earns
+≈ **+$0.13 per contact** (+$131–$138 per 1,000 contacted, after send costs) at
+the assumptions above — the number every Day-2 model must beat.
 
 Filled in as the build progresses (Day 2 onwards).
 
