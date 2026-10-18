@@ -26,6 +26,14 @@ uv add <pkg>        /  uv add --dev <pkg>      # change deps — never hand-edit
 
 Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
 
+## Git
+
+- Commit automatically after each logical change. Do not wait to be asked and do not
+  ask for permission first.
+- Use `git add .` followed by `git commit`. Never leave work uncommitted at the end
+  of a turn.
+- One commit per logical change. Keep unrelated edits in separate commits.
+
 ## Non-obvious structure
 
 - **Python 3.11 is pinned** (`.python-version`). Do not use the system `python3` (3.13):
