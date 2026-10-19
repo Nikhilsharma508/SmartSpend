@@ -7,7 +7,7 @@ Legend:
 - [AGENT] = vibe-code: setup, boilerplate, wrappers, UI, tests (review each diff)
 - `[x]` = done · `[~]` = in progress · `[ ]` = not started
 
-**Progress:** Day 1 ✅ · Day 2 ✅ · Days 3–7 not started.
+**Progress:** Days 1–4 ✅ · Day 5 in progress · Days 6–7 not started.
 
 > **Figure convention.** Every plot a notebook produces is saved through
 > `packages/plotting.py::save_fig(fig, name)` into `docs/figures/<name>.png`
@@ -68,7 +68,7 @@ All numbers in `docs/concepts.md` findings ledger, Day 3.)*
 
 ---
 
-## Day 4 — Decision layer
+## Day 4 — Decision layer ✅
 
 - [x] [YOU] Profit curve on holdout: break-even at 2% depth; peak at 30% = $858 (CI [140, 1,576]); 16/25 depth CIs include zero — no optimal-depth claim from one split (notebook 05 §3)
 - [x] [YOU] Compare against target-all, random and response-score targeting at a fixed budget — target-all $1,451 at 3.3× the budget (infeasible at 30%); champion $858 vs random $435, CIs overlap (notebook 05 §4)
@@ -91,8 +91,8 @@ Done when: all 5 tools are callable from Python and the tests pass — ✅ (note
 - [ ] [YOU] Write the brief writer prompt and the brief template (recommendation, targets, intervals, baseline, assumptions, risks)
 - [ ] [YOU] Define the validator rules: number-matching tolerance, unit conversions, required content, causal-language rubric
 - [ ] [YOU] Hand-write 15 seed eval cases (normal, ambiguous, out-of-scope, policy-risk)
-- [ ] [AGENT] Implement router.py, planner.py, writer.py, validator.py, providers.py (with a Responses API fallback for the router)
-- [ ] [AGENT] Number-extraction parser (₹, $, %, lakh/crore, commas)
+- [ ] [AGENT] Implement router.py, planner.py, writer.py, validator.py, providers.py (with a deterministic keyword-router fallback when the Decisions API is unreachable)
+- [ ] [AGENT] Number-extraction parser (USD: $, commas, k suffixes; %; per-contact costs; daily volumes)
 
 Done when: an end-to-end brief is generated for all 4 use cases and passes the validator
 

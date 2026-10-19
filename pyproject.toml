@@ -19,6 +19,7 @@ dependencies = [
     "pydantic>=2.14.1",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
+    "requests>=2.34.2",
     "scikit-learn>=1.9.1",
     "scikit-uplift>=0.5.1",
     "scipy>=1.17.1",

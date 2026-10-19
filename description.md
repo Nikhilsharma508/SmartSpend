@@ -20,7 +20,7 @@ UpliftIQ decides who should receive a discount by estimating each customer's inc
 | --- | --- | --- |
 | Qini AUC |  |  |
 | Incremental conversions at 30% targeted |  |  |
-| Incremental profit per ₹1L of spend (stated assumptions) |  |  |
+| Incremental profit per $100 of spend (stated assumptions) |  |  |
 | Copilot numeric faithfulness (% of figures traced to tools) | — |  |
 
 ## Why it matters
@@ -61,21 +61,24 @@ The architecture as a Mermaid diagram (renders on GitHub and in most Markdown vi
 flowchart TB
     subgraph OFF["Offline: causal engine, trained once"]
         D["Experiment data<br/>Hillstrom 64K<br/>randomized treatment/control"] --> E["Causal engine<br/>S/T/X/DR learners, forest<br/>Qini, AUUC, calibration"]
-        E --> T["Decision tools<br/>budget optimizer, segments<br/>power analysis, model card"]
+        E --> REG["Champion registry<br/>models/champion.joblib + provenance"]
+        REG --> T["Decision tools<br/>budget optimizer, segments<br/>power analysis, model card"]
     end
     subgraph ON["Online: Campaign Copilot, per request"]
-        Q["Marketer question<br/>budget, costs, exclusions"] --> R["Router (Decisions API)<br/>intent, policy risk, missing inputs"]
-        R --> P["Planner (Responses API)<br/>typed Scenario extraction<br/>function calls to tools"]
-        P -->|scenario + results| W["Writer (Responses API)<br/>brief from tool outputs only"]
-        W --> V["Grounding validator<br/>every number traced to tools"]
-        V -->|fail: regenerate once| W
-        V -->|pass| O["Campaign brief<br/>target list CSV<br/>A/B test plan"]
+        Q["Marketer question"] --> R["[1] GATE — Decisions API<br/>1 call, 3 named questions:<br/>intent (choice), policy risk (noul),<br/>missing inputs (noul)"]
+        R -->|"high risk / out of scope / missing"| F["Fast paths (<1s, no writer tokens)<br/>decline / redirect / clarify<br/>(deterministic templates)"]
+        R -->|routed intent| P["[2] PLAN — pure Python<br/>question → typed Scenario (regex<br/>number parsing) → Day-4 tools"]
+        P -->|"tool outputs, JSON verbatim"| W["[3] WRITE — pluggable writer<br/>TemplateWriter (no LLM) |<br/>Ollama gpt-oss:120b-cloud |<br/>NEUROMETRIC gateway"]
+        W --> V["[4] VALIDATE — pure Python<br/>V1 number-trace (1% tolerance),<br/>V2 units, V3 causal rubric,<br/>V4 sections"]
+        V -->|"fail: one rewrite with the<br/>validator errors attached"| W
+        V -->|pass| O["Campaign brief<br/>citations[], validation report,<br/>JSONL trace"]
     end
+    P -->|loads once, cached| REG
     P -->|tool calls| T
     T -->|results| P
 ```
 
-A request flows from the marketer's question through the router, planner, writer and validator before it returns as a brief. The only path to a figure is the tool call up to the offline engine.
+A request flows from the marketer's question through the gate, plan, write and validate stages before it returns as a brief. Gate-only paths (decline, redirect, clarify) never touch a writer and spend zero writer tokens; a full brief is the only path that generates prose, and the only path to a figure is the tool call up to the offline engine.
 
 ## Causal ML pipeline
 
@@ -102,24 +105,23 @@ The copilot translates a marketer's plain-language question into a precise scena
 
 ### The gap it closes
 
-The causal engine outputs CATE scores and profit curves. A marketer's real question sounds like: "I have ₹5 lakh, each contact costs ₹40, skip anyone who bought last week. Who do I target, and is it worth it?" Turning that into optimizer inputs, then turning the result back into a decision someone can approve, is the work the copilot does. Without it, the models stay in a notebook.
+The causal engine outputs CATE scores and profit curves. A marketer's real question sounds like: "I have $500, each contact costs $0.10, skip anyone who bought last week. Who do I target, and is it worth it?" Turning that into optimizer inputs, then turning the result back into a decision someone can approve, is the work the copilot does. Without it, the models stay in a notebook.
 
 ### Four use cases
 
 | Use case | Example question | Tools called | Output |
 | --- | --- | --- | --- |
-| Plan a campaign | "₹5L budget, ₹40 per contact: who should get it?" | `optimize_budget`, `get_segment_profile` | Brief, target list CSV, profit vs. baselines |
-| What-if | "What if contact cost rises to ₹60?" | `compare_scenarios` | Side-by-side change in reach and profit |
+| Plan a campaign | "$500 at $0.10 per contact: who should get it?" | `optimize_budget`, `compare_scenarios`, `profit_point` | Brief, profit vs. baselines, intervals |
+| What-if | "What if contact cost rises to $0.60?" | `compare_scenarios` (base + variant) | Side-by-side change in reach and profit |
 | Explain segments | "Who are the persuadables, and who should we avoid?" | `get_segment_profile` | Policy-tree rules in plain language, with size and effect intervals |
-| Design the next test | "How long to test a new 15% coupon?" | `design_ab_test` | Test plan: sample size per arm, duration, success metric |
+| Design the next test | "How long to test a new offer? We see 2,000 customers a day." | `design_ab_test` | Test plan: sample size per arm, duration, success metric |
 
 ### Request flow
 
-1. **Route (Decisions API).** A single fast call asks three questions: a *choice* for intent (plan, what-if, explain, test design, out of scope); a *predicate* for policy risk (does the request target or exclude people by a sensitive attribute or a proxy for one?); and a *predicate* for missing inputs (is a required parameter such as budget or cost absent?). Probabilities are thresholded: high policy risk is declined with an explanation, missing inputs trigger one clarifying question, out-of-scope gets a short redirect.
-2. **Extract the scenario (Responses API, structured output).** The planner converts the question into a validated Pydantic `Scenario` (budget, cost per contact, value per conversion, exclusions, dataset, objective). Any value not stated by the user is filled from a documented default and flagged as an assumption in the brief.
-3. **Call tools (function calling).** The planner calls one or more typed tools. Tools are plain Python over the trained models; they return numbers with confidence intervals.
-4. **Write the brief (Responses API).** The writer sees only the scenario and tool outputs, never raw data, and produces a one-page brief: recommendation, who to target, expected incremental outcome with intervals, comparison with baselines, assumptions, and risks.
-5. **Verify (grounding validator).** Deterministic checks run before the user sees anything (next subsection). A failed check triggers one regeneration with the errors attached; a second failure returns the tool outputs as a table with a warning instead of prose.
+1. **Gate (Decisions API, one call).** Three named questions: a *choice* for intent (plan, what-if, explain, test design, out-of-scope); a *noul* predicate for policy risk (does the request target or exclude people by a sensitive attribute or a proxy for one?); and a *noul* predicate for missing inputs (is a required parameter absent?). Probabilities are thresholded (`configs/copilot.yaml`): high policy risk is declined with a fixed explanation, out-of-scope or low intent confidence gets a short redirect, missing inputs trigger exactly one clarifying question — all deterministic templates, no writer tokens, so these fast paths stay sub-second.
+2. **Plan (pure Python).** The routed intent plus a deterministic number parser (dollar amounts, percentages, per-contact costs, daily volumes — commas and `k` suffixes handled) fill a typed `CampaignScenario`; anything the marketer did not state is filled from documented defaults and flagged in `assumptions_used`. The planner dispatches to the Day-4 tools over the registered champion loaded once and cached; a failing tool surfaces as a typed `ToolFailure` the writer can quote but never paper over.
+3. **Write (pluggable writer).** The writer sees only the scenario and tool outputs, never raw data. Providers are thin raw-HTTP clients: `TemplateWriter` (no LLM, always available), Ollama (`gpt-oss:120b-cloud`) and the NEUROMETRIC gateway — selected in `configs/copilot.yaml`, swappable per request. The prompt pre-computes every number and instructs verbatim citation.
+4. **Validate (pure Python, no LLM).** Deterministic checks run before the user sees anything (next subsection). A failed check triggers one rewrite with the errors attached; a second failure returns the brief with explicit `[UNVERIFIED: …]` flags instead of silently passing.
 
 ### Tools
 
@@ -133,9 +135,10 @@ The causal engine outputs CATE scores and profit curves. A marketer's real quest
 
 ### Grounding validator
 
-- **Numeric faithfulness.** Every number in the brief (₹, %, counts, lakh/crore formats) is extracted with a parser and matched against the tool outputs, allowing for rounding and declared unit conversions. Any number with no source fails the check.
-- **Required content.** The brief must state its assumptions, show intervals for the main estimates, and name the comparison baseline.
-- **Causal language.** Segment rules describe *who responds more*, not *why*. A short LLM-judge rubric flags overclaims such as "they respond because they are price-sensitive", since a policy tree shows heterogeneity, not mechanism.
+- **Numeric faithfulness (V1).** Every dollar amount, percentage and unit-tagged count in the brief is extracted with a parser and matched against the flattened tool outputs, with a 1% relative tolerance for rounding (depths and rates also match their fraction/percent forms). Any number with no source fails the check; each matched number becomes a `Citation` with its tool-output path.
+- **Units (V2).** USD everywhere: a brief containing ₹, INR, €, "lakh" or "crore" fails — the reporting currency was decided on Day 1 and the validator enforces it.
+- **Required content (V4).** Per intent, the brief must carry its sections — recommendation, what it earns, uncertainties, assumptions (plus a next-test pointer where relevant) — state its assumptions, and show intervals for the main estimates.
+- **Causal language (V3).** A deny-list rubric blocks overclaims ("will buy", "guaranteed", "proves", "because they are …"): segment rules describe *who responds more*, not *why*, and a policy tree shows heterogeneity, not mechanism. When a tool output carries an interval, the prose must contain interval phrasing.
 
 ### What the copilot deliberately does not do
 
@@ -145,7 +148,7 @@ The causal engine outputs CATE scores and profit curves. A marketer's real quest
 
 ### Why use the Decisions API for routing
 
-The planner LLM could route on its own. The Decisions API is used because routing and policy checks run on every request, and it returns calibrated probabilities that can be thresholded and audited at low cost and latency. Whether it earns its place is measured, not assumed: the evaluation includes an ablation with and without the router. All model calls sit behind a provider interface, so the copilot still works if the beta API changes.
+The planner LLM could route on its own. The Decisions API is used because routing and policy checks run on every request, and it returns calibrated probabilities that can be thresholded and audited at low cost and latency. Whether it earns its place is measured, not assumed: the evaluation includes an ablation with and without the router — the no-Decisions path is a deterministic keyword scorer (`keyword_fallback_route`), not another model. If the endpoint is unreachable or refuses a question, the keyword fallback keeps the copilot answering, with `router=keyword_fallback` recorded in the trace. All provider calls are thin `requests` code behind small classes, so the copilot still works if an API changes.
 
 ## Evaluation plan
 
@@ -172,7 +175,7 @@ Both layers are judged on measurable targets: the causal engine against baseline
 
 Brier score is a diagnostic, not the model-selection metric: a model can have a good Brier score and still rank uplift poorly. Model choice stays with Qini AUC and incremental profit.
 
-**Campaign Copilot.** Build `evals/copilot_cases.jsonl` with about 50 hand-written questions, each labelled with the expected intent, scenario fields and tool calls. Include ambiguous, out-of-scope and policy-risk cases.
+**Campaign Copilot.** `evals/seed_cases.yaml` starts with 15 hand-written questions, each labelled with the expected route (intent + fast path) and, for brief cases, the expected tool calls; Day 6 grows it to ~50 with adversarial ones (fake numbers in the prompt, proxy-attribute targeting).
 
 | Metric | How it is measured | Target |
 | --- | --- | --- |
@@ -181,7 +184,7 @@ Brier score is a diagnostic, not the model-selection metric: a model can have a 
 | Tool-call correctness | Right tools with right arguments | ≥ 90% of cases |
 | Numeric faithfulness | Share of brief numbers traced to tool outputs | 100% after the validator |
 | Correct declines | Policy-risk and out-of-scope cases handled correctly | 100% |
-| Latency and cost per brief | p50/p95 seconds, ₹ per brief | Reported, with and without the router |
+| Latency and cost per brief | p50/p95 seconds, USD per brief | Reported, with and without the router |
 
 Most copilot checks are deterministic, not LLM-judged; only the causal-language check uses a judge. The router ablation reports whether the Decisions API improves latency, cost or decline accuracy enough to justify itself.
 
@@ -195,7 +198,7 @@ A Python backend and ML packages behind a FastAPI service, with a React frontend
 | Causal models | `causalml`, `econml`, `lightgbm` | Meta-learners, DR-learner, causal forest, policy-tree interpreter |
 | Experimentation | `statsmodels` | Power analysis and sample sizing |
 | ML lifecycle | MLflow | Experiment tracking, model registry; the API loads only the registered champion |
-| GenAI | `openai` SDK (Responses API, Decisions API), `pydantic` | Routing, scenario extraction, tool calling, brief writing |
+| GenAI | raw `requests` HTTP — Decisions API gate + OpenAI-compatible chat completions (Ollama, NEUROMETRIC), `pydantic`, `python-dotenv` | Routing, brief writing, typed contracts |
 | API | FastAPI, Pydantic v2, SQLAlchemy + Alembic | Versioned REST endpoints; copilot responses streamed over SSE |
 | Storage | PostgreSQL | Scenarios, briefs, target lists, and an audit log of every LLM call and tool output |
 | Frontend | React + TypeScript (Vite), TanStack Query, Recharts, Tailwind | Campaign planner, profit and Qini charts, segment explorer, copilot chat |
@@ -295,18 +298,20 @@ for name, score in [("T-learner", uplift), ("Response model", resp_score)]:
                                            strategy="overall", k=0.3), 4))
 ```
 
-The copilot's contract starts as a typed scenario, so the LLM can only fill fields the tools accept:
+The copilot's contract is a typed scenario, so a question can only become fields the tools accept — everything else is a validation error, not a guess:
 
 ```python
 from pydantic import BaseModel, Field
 
-class Scenario(BaseModel):
-    dataset: str = Field(pattern="^hillstrom$")
-    budget_inr: float = Field(gt=0)
-    cost_per_contact_inr: float = Field(gt=0)
-    value_per_conversion_inr: float | None = None  # None -> documented default
-    exclusions: list[str] = []                      # e.g. ["purchased_last_7_days"]
-    assumptions: list[str] = []                     # every default used, shown in the brief
+class CampaignScenario(BaseModel):          # packages/copilot/schemas.py
+    intent: Literal["plan", "what_if", "explain", "test_design"]
+    question: str
+    budget_usd: float | None = Field(default=None, gt=0)
+    cost_per_contact_usd: float | None = Field(default=None, gt=0)
+    depth: float | None = Field(default=None, gt=0, le=0.5)
+    mde: float | None = Field(default=None, gt=0)
+    daily_eligible: int | None = Field(default=None, gt=0)
+    assumptions_used: list[str] = []        # every default, shown in the brief
 ```
 
 **Day 1 checklist.**
@@ -324,9 +329,9 @@ The main limits are about what offline experiment data can prove; each is stated
 | Risk or limitation | Mitigation |
 | --- | --- |
 | Profit depends on assumed value and cost | State assumptions in the brief and README; show profit across a range of values |
-| Hillstrom spend is in USD | Convert at a stated rate for ₹ display, or keep USD and label it |
+| Hillstrom spend is in USD | Reporting currency is USD only (decided Day 1); the validator fails any brief that mixes currencies |
 | Results are from past experiments, not live deployment | Frame impact as "estimated on held-out randomized data"; the test-design tool plans the live validation |
-| Decisions API is in public beta | Provider interface with a Responses API fallback; router ablation measures its value |
+| Decisions API is in public beta | Thin provider class; a deterministic keyword-router fallback keeps the copilot answering; router ablation measures its value |
 | LLM could state unsupported numbers or causal claims | Grounding validator blocks unsourced numbers; judge rubric flags causal overclaims |
 | Zip-code type can act as a proxy for protected attributes | Router policy check, plus a fairness note on how targeting rates differ by zip type |
 

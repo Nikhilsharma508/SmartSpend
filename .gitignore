@@ -34,6 +34,9 @@ mlruns/
 mlartifacts/
 models/
 
+# ---- Copilot traces (one JSONL row per request stage; Day-6 eval reads locally) ----
+traces/
+
 # ---- Secrets ----
 .env
 .env.*
