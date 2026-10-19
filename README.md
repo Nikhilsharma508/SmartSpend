@@ -70,7 +70,7 @@ Day 5 — campaign copilot: gate (Decisions API) → plan (Day-4 tools) → writ
 - [x] Copilot notebook — [`research/notebooks/05_hillstrom_copilot.ipynb`](research/notebooks/05_hillstrom_copilot.ipynb): live gate, 3-writer comparison on one brief, 4 use cases end-to-end, seed eval, validator torture (5/5 caught), fast-path timing, [`day5_copilot_latency.png`](docs/figures/day5_copilot_latency.png)
 - [x] Live calibration — fast-path 1.00, intent/tools 1.00 on the seed set; briefs ~8 s total (ollama ~3.6 s of it), fast paths ~1.2 s gate-only; first-draft validator pass 0.44–0.78 → ~0.5–1.0 after the one rewrite
 
-Days 6–7: see [`plan.md`](plan.md).
+Days 6–7: see [`ROADMAP.md`](ROADMAP.md).
 
 ## Datasets
 

@@ -5,7 +5,7 @@ grounded GenAI campaign copilot. The installed distribution name is **`smartspen
 (`pyproject.toml`), which is also the name used in prose and docs. It is also not an
 importable package: `import smartspend` fails. Code lives in `packages/`.
 
-`plan.md` and `description.md` at the root are **planning inputs**, and both are partly
+`ROADMAP.md` and `PROJECT.md` at the root are **planning inputs**, and both are partly
 stale (see "Decisions that override the docs"). Treat this file and the code as current.
 
 ## Commands
@@ -67,9 +67,9 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
 
 ## Decisions that override the docs
 
-- **Profit is reported in USD only.** Ignore the ₹/INR framing throughout `description.md`;
+- **Profit is reported in USD only.** Ignore the ₹/INR framing throughout `PROJECT.md`;
   there is no conversion step.
-- **Day 6 UI is FastAPI + React** (as in `description.md`). `plan.md`'s "Streamlit campaign
+- **Day 6 UI is FastAPI + React** (as in `PROJECT.md`). `ROADMAP.md`'s "Streamlit campaign
   planner" is superseded.
 - **Profit assumptions are decided** (30% margin, $0.10/contact, value per
   conversion $34.91) — see `configs/business_assumptions.yaml`; change only with a

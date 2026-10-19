@@ -29,7 +29,7 @@ Legend:
 Done when: notebook 01 has the SMD table, ATE table and a written assumptions block ✅
 *(Work lives across `00_hillstrom_eda.ipynb` + `01_hillstrom_randomization_ate.ipynb` — the deliberate EDA/causal split.)*
 
-**Day-1 checklist** *(relocated from `description.md`)*:
+**Day-1 checklist** *(relocated from `PROJECT.md`)*:
 
 - [x] Fresh environment with pinned versions (`uv` + `.python-version` on Python 3.11).
 - [x] Randomization checked with standardized mean differences for the Hillstrom arms; any SMD above 0.1 flagged.
