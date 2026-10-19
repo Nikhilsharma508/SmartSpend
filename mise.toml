@@ -1,0 +1,4 @@
+# JS toolchain for apps/ (installed via mise; see AGENTS.md)
+[tools]
+node = "22"
+pnpm = "10"

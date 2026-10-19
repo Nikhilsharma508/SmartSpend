@@ -1,0 +1,12 @@
+{
+  "name": "smartspend-root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repository-root runner — `npm run start` boots the whole app (FastAPI once apps/api exists, plus the web planner). Zero dependencies; the script bootstraps mise/pnpm/uv itself.",
+  "scripts": {
+    "start": "bash scripts/start_app.sh",
+    "web": "pnpm -C apps/web dev",
+    "web:build": "pnpm -C apps/web build",
+    "web:check": "pnpm -C apps/web lint && pnpm -C apps/web typecheck && pnpm -C apps/web test"
+  }
+}

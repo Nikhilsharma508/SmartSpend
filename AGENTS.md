@@ -27,6 +27,34 @@ uv add <pkg>        /  uv add --dev <pkg>      # change deps — never hand-edit
 
 Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
 
+## Frontend (apps/web)
+
+Node toolchain comes from **mise** (pinned in `mise.toml`: node 22, pnpm 10). Most
+commands need the shims on PATH:
+
+```bash
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+npm run start                      # boots everything: web dev server :5173,
+                                   # plus FastAPI :8000 once apps/api/app/main.py exists
+pnpm -C apps/web dev               # vite dev server on :5173 (proxies /api → :8000)
+pnpm -C apps/web lint && pnpm -C apps/web typecheck \
+  && pnpm -C apps/web test         # web quality gates before any commit (then build)
+```
+
+- **Offline playback is the honest default, not a degraded one.** The UI only shows
+  numbers produced by real Day-4 tools and real copilot pipeline runs, replayed from
+  `apps/web/src/api/mock/fixtures.json` (its `generator` field records how it was
+  built). Never hand-invent a UI number; regenerate fixtures by running the tools.
+- `src/components/kokonutui/`, `src/components/charts/` (Bklit) and
+  `src/components/shimmering-text.tsx` are registry-vendored and lint-relaxed in
+  `eslint.config.js`. `charts/profit-curve-chart.tsx` and
+  `charts/segment-uplift-chart.tsx` are ours — keep them fully linted.
+- The shadcn CLI reads the **root** `tsconfig.json` for the `@/*` alias (hand-added
+  there); pin the CLI (`pnpm dlx shadcn@4.21.0 add … -y`) and run it from `apps/web`.
+  Registries: `@kokonutui/*`, `@bklit/*` via `components.json`.
+- "Offline playback" and the copilot question taxonomy are defined in
+  `docs/concepts.md` — keep that file in sync with the UI the same way as notebooks.
+
 ## Git
 
 - **Notebooks use `nbstripout` as a repo-local git filter** (`.git/info/attributes` + local

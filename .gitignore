@@ -52,3 +52,9 @@ traces/
 .idea/
 .vscode/
 *.swp
+
+# ---- Node / frontend (apps/web) ----
+node_modules/
+coverage/
+*.tsbuildinfo
+.eslintcache
