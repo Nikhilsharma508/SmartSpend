@@ -45,17 +45,26 @@ Done when: one Qini plot with all models and a short written interpretation ✅
 
 ---
 
-## Day 3 — Advanced models and evaluation depth
+## Day 3 — Advanced models and evaluation depth ✅
 
-- [ ] [YOU] DR-learner on `visit`; DR-learner on `spend` (regression CATE challenger)
-- [ ] [YOU] Causal forest (econml) with effect intervals
-- [ ] [YOU] CATE calibration by decile: predicted vs observed uplift
-- [ ] [YOU] Brier score and reliability curves for the treated and control outcome models and the baseline
-- [ ] [YOU] Decide on recalibration (isotonic or Platt, fitted per arm on validation only)
-- [ ] [AGENT] Seed/split loop runner (10 runs) that aggregates mean ± spread into a benchmark table
-- [ ] [YOU] Pick the champion model and write the justification (Qini + profit, not Brier)
+- [x] [YOU] DR-learner on `visit`; DR-learner on `spend` (regression CATE challenger)
+- [x] [YOU] Causal forest (econml) with effect intervals
+- [x] [YOU] CATE calibration by decile: predicted vs observed uplift
+- [x] [YOU] Brier score and reliability curves for the treated and control outcome models and the baseline
+- [x] [YOU] Decide on recalibration (isotonic or Platt, fitted per arm on validation only) → **Platt, per arm, validation only**
+- [x] [AGENT] Seed/split loop runner (10 runs) that aggregates mean ± spread into a benchmark table
+- [x] [YOU] Pick the champion model and write the justification (Qini + profit, not Brier) → **champion: response baseline**
 
-Done when: the benchmark table is filled in and the champion model is chosen with reasons
+Done when: the benchmark table is filled in and the champion model is chosen with reasons ✅
+*(Notebook 04 + 4 figures `docs/figures/day3_*.png`. Finding: over 10 seeds **no
+uplift model beats the response baseline** — response tops Qini (0.0231 ± 0.0094)
+and profit ($569/test split, $0.223/contact vs $0.137 uniform), but its edge over
+DR (0.0048) is inside its own spread → pre-registered rule declares a statistical
+tie, broken on profit + parsimony. X/T/forest are statistically at random on
+`visit`; Qini and profit disagree on ordering (DR 2nd/5th); profit is valued on
+**conversions** (valuing visits overstates ~14×); Platt beats isotonic modestly;
+single-split spend orderings sit inside the random noise floor (σ ≈ 1.0 at 10%).
+All numbers in `docs/concepts.md` findings ledger, Day 3.)*
 
 ---
 

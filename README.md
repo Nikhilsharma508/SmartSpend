@@ -22,7 +22,7 @@ that change nothing. An uplift model ranks **persuadables** highest instead.
 
 ## Project status
 
-**Days 1–2 complete.**
+**Days 1–3 complete.**
 
 Day 1 — data, scaffold, environment, experiment validation.
 
@@ -46,7 +46,15 @@ Day 2 — feature pipeline, uplift metrics, response baseline + S/T/X learners.
 - [x] Baselines notebook — [`research/notebooks/03_hillstrom_uplift_baselines.ipynb`](research/notebooks/03_hillstrom_uplift_baselines.ipynb)
 - [x] Qini comparison + interpretation — X-learner leads narrowly (0.0236), S-learner shrinks to ~0, response baseline is competitive (notebook 03 §4–5)
 
-Days 3–7: see [`plan.md`](plan.md).
+Day 3 — DR/causal-forest challengers, calibration, 10-seed benchmark.
+
+- [x] Learner factory (response/S/T/X/DR/forest, one `fit/predict/effect_interval` API) — [`packages/causal/learners.py`](packages/causal/learners.py)
+- [x] Calibration module (Brier, reliability, Platt/isotonic, CATE-by-decile) — [`packages/causal/calibration.py`](packages/causal/calibration.py)
+- [x] Benchmark runner — 10 seeds, mean ± spread, profit valued on conversions — [`packages/causal/benchmark.py`](packages/causal/benchmark.py)
+- [x] Learners + calibration notebook — [`research/notebooks/04_hillstrom_learners_calibration.ipynb`](research/notebooks/04_hillstrom_learners_calibration.ipynb)
+- [x] Champion chosen on Qini + profit (pre-registered rule) — statistical tie at the top → **response baseline**; no uplift model clears it (notebook 04 §8)
+
+Days 4–7: see [`plan.md`](plan.md).
 
 ## Datasets
 
@@ -111,11 +119,27 @@ the signal is weak overall. The X-learner leads narrowly; the S-learner collapse
 toward random. Full table and reading in
 [`docs/concepts.md`](docs/concepts.md).
 
-| Metric | Response model (baseline) | Best uplift model (X-learner) |
+| Metric (single split) | Response model (baseline) | Best uplift model (X-learner) |
 | --- | --- | --- |
 | Qini AUC | 0.0199 | **0.0236** |
 | uplift@30% (incremental visits/customer) | 0.0899 | **0.1015** |
-| Incremental conversions at 30% targeted | — (Day 3) | — (Day 3) |
+
+**Day 3 (notebook 04):** the same comparison repeated over **10 seeds**, with
+six learners and profit valued on **conversions** (not visits). The honest
+headline: **no uplift model beats the response baseline.** Response tops Qini
+(0.0231 ± 0.0094) *and* profit ($569 per test split = $0.223/contact vs
+$0.137 uniform, +62%), but its edge over DR (0.0048) is inside its own spread —
+declared a **statistical tie** and broken toward response on profit +
+parsimony. DR is the best actual uplift model; X, T and the forest are
+statistically at random on `visit`. Recalibration: Platt wins, modestly.
+Full benchmark, noise floors and the champion reasoning in
+[`docs/concepts.md`](docs/concepts.md).
+
+| Metric (10-seed means) | Response model (champion) | Best uplift model (DR-learner) |
+| --- | --- | --- |
+| Qini AUC | **0.0231 ± 0.0094** | 0.0183 ± 0.0091 |
+| uplift@30% (incremental visits/customer) | **0.0912** | 0.0911 |
+| Incremental conversions at 30% targeted | **23.6** (9.2 per 1,000 contacted) | 20.7 (8.1 per 1,000) |
 | Incremental profit per $10k spend | — (Day 4) | — (Day 4) |
 | Copilot numeric faithfulness (% figures traced to tools) | — | — (Day 5–6) |
 

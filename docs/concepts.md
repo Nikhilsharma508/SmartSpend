@@ -219,6 +219,74 @@ why the model is ultimately chosen on Qini **and** profit, not on Brier score.
 
 ---
 
+## 5. Day-3 evaluation depth
+
+### DR-learner (doubly robust)
+
+A two-stage learner: first fit the propensity `P(T=1 | X)` and the two outcome
+regressions `E[Y | X, T]`; combine them into an **AIPW pseudo-outcome** — an
+unbiased per-customer estimate of the effect that stays consistent if *either*
+the outcome model *or* the propensity model is correct (hence "doubly
+robust"); then regress that pseudo-outcome on `X` for the final ranking. On a
+randomised experiment the propensity is known 0.5, which removes one of the
+two ways to be wrong and makes this a strong default.
+
+### Causal forest
+
+An ensemble that splits to **maximise treatment-effect heterogeneity**
+directly, rather than outcome heterogeneity: each tree grows on orthogonalised
+residuals (outcome minus propensity-weighted average, so the split criterion
+targets the *difference* between arms). Leaves estimate local average
+treatment effects, and the forest aggregates them with honesty (split-sample)
+to keep the estimates from over-fitting their own data.
+
+### Effect interval
+
+A confidence interval for a per-customer effect, produced by the forest from
+the spread of its trees (jackknife-over-trees). The width tells you where the
+data supports heterogeneity: an interval that **excludes zero** means the
+model is confident that customer is persuadable (or harmed). Caveat to keep
+honest: the true ITE is never observable, so an interval can only be judged
+for plausibility and aggregate coverage — not against per-customer truth.
+
+### Brier score and reliability
+
+- **Brier score** — `mean((p − y)²)`, the squared error of a probability
+  forecast. Lower is better. Because a rare outcome makes "always predict the
+  base rate" a strong competitor, the **Brier skill score**
+  `1 − model / base-rate-model` says whether a model beats that null:
+  `≥ 0` is better, negative means the fitted probabilities are *worse* than
+  predicting one constant.
+- **Reliability diagram** — bin rows by predicted probability and plot mean
+  predicted vs observed rate per bin. Perfect calibration lies on the
+  diagonal; `mean|gap|` summarises the average miss in probability points.
+  Refinement (scores that spread out) is *not* calibration — a model can
+  discriminate well (§4 ranking metrics) while its magnitudes are off.
+
+### Recalibration
+
+A monotone remapping from score to probability, fit on **validation** data and
+applied to test: **Platt** (a logistic/sigmoid transform, 2 parameters, robust
+on small samples) or **isotonic** (a non-parametric step function, more
+flexible, prone to over-fitting on little data). Two invariants to remember:
+
+- The remap must be fit on validation, never on the rows being scored —
+  otherwise the score measures fit, not calibration.
+- Being monotone, it **cannot change Qini or any ranking metric**; it only
+  fixes magnitudes, which is what profit depends on.
+
+### CATE calibration by decile
+
+The ranking-metrics / calibration gap applied to *effects* rather than
+probabilities: sort customers by predicted uplift, cut into deciles, compute
+the treated-minus-control outcome gap **inside each decile**, and compare it
+with the mean predicted effect for that decile. A model whose deciles track
+the observed gaps (high rank correlation between predicted and observed) has
+useful effect *magnitudes*; one that ranks well but whose decile means are
+flat or inflated only supports ordering, not dollar figures.
+
+---
+
 ## Findings ledger
 
 Accumulated results. Every number here should be reproducible from a notebook or
@@ -266,6 +334,118 @@ Findings (notebook 03):
 | Response baseline is competitive | Its score tracks *purchasability*, and since the e-mail lifts everyone, top-purchasability customers carry much of the total outcome. The edge disappears under **profit** optimisation (sure things cost full contact for little margin) — Day 4's job. |
 | X-learner leads narrowly | Best Qini AUC (0.0236) and uplift@30% (0.1015), but the margin over response is thin — not a decisive win on one split. Motivates Day-3 DR/causal-forest challengers and the 10-seed benchmark. |
 
+### Hillstrom — Day 3 (DR/forest, calibration, stability)
+
+**Single split** (`RANDOM_STATE = 42`, test n = 8,523, ranking on `visit`;
+notebook 04 §2). Day-3 challengers added to the Day-2 pack:
+
+| Model | Qini AUC | uplift@10% | uplift@30% |
+| --- | --- | --- | --- |
+| X-learner | 0.0236 | 0.1217 | 0.1015 |
+| T-learner | 0.0201 | 0.1026 | 0.0961 |
+| Response baseline | 0.0199 | 0.1187 | 0.0899 |
+| Causal forest | 0.0193 | 0.0901 | 0.0861 |
+| DR-learner | 0.0081 | 0.1604 | 0.0725 |
+| Random | 0.0079 | 0.0655 | 0.0713 |
+| S-learner | 0.0069 | 0.1055 | 0.0834 |
+
+Single split, so this table is reference only — the benchmark below is the
+result of record (note DR's one-split Qini of 0.0081 ≈ random against its
+10-seed mean of 0.0183: exactly the flakiness the benchmark exists to catch).
+
+**Effect intervals — causal forest on `visit` (same split):**
+
+| Quantity | Value |
+| --- | --- |
+| Point-estimate range across test | [−0.0962, 0.1999] |
+| Mean 95% CI width | 0.1764 (vs ATE 0.0767) |
+| Point estimates > 0 | 97.6% |
+| CIs excluding 0 | 42.4% |
+
+**CATE calibration by deciles** (decile 1 → 10 means, predicted vs observed
+uplift; notebook 04 §4):
+
+| Model | Predicted (d1 → d10) | Observed (d1 → d10) | Spearman |
+| --- | --- | --- | --- |
+| Causal forest | 0.009 → 0.144 | 0.067 → 0.092 | 0.49 |
+| DR-learner | 0.048 → 0.134 | 0.084 → 0.160 | −0.09 |
+| X-learner | −0.037 → 0.212 | 0.083 → 0.123 | 0.37 |
+
+Predicted spreads dwarf the observed movement for forest and X — effect
+*magnitudes* are over-dispersed even where ordering is decent. DR's spread
+matches in size but its decile ordering is uncorrelated with what actually
+happened (Spearman −0.09): single-split decile means on this data are noise.
+
+**Outcome-model calibration (Brier, scored on own arm, test):**
+
+| Model | Brier | Skill vs base rate | Reliability mean\|gap\| |
+| --- | --- | --- | --- |
+| Treated-arm outcome model | 0.15013 | −0.0051 | 0.0377 |
+| Control-arm outcome model | 0.09501 | −0.0019 | 0.0343 |
+
+Recalibration, fit on **validation**, scored on test (treated model): raw
+0.15013 → isotonic 0.14800 → **Platt 0.14756**. Decision: **Platt per arm,
+validation only**, applied before any dollar valuation; raw scores kept for
+ranking (monotone → Qini unchanged). Negative skill means the fitted
+probabilities barely beat one constant — the weak-heterogeneity story on the
+probability scale.
+
+**10-seed benchmark** — seeds 0–9; models train and rank on `visit`, **profit
+is valued on `conversion`** (passed as `make_fold`'s 7th array); test
+n = 8,523, k = 30% → 2,557 targeted; assumptions from
+`configs/business_assumptions.yaml`.
+
+| Model | Qini AUC | uplift@30% | incr. conv @30% | profit @30% | $/contact |
+| --- | --- | --- | --- | --- | --- |
+| **Response (champion)** | **0.0231 ± 0.0094** | **0.0912** | **23.6** | **$569 ± 239** | **$0.223** |
+| DR-learner | 0.0183 ± 0.0091 | 0.0911 | 20.7 | $466 ± 221 | $0.182 |
+| S-learner | 0.0128 ± 0.0144 | 0.0854 | 22.4 | $524 ± 268 | $0.205 |
+| X-learner | 0.0046 ± 0.0161 | 0.0849 | 21.4 | $491 ± 345 | $0.192 |
+| T-learner | 0.0041 ± 0.0132 | 0.0857 | 20.6 | $463 ± 317 | $0.181 |
+| Causal forest | 0.0027 ± 0.0182 | 0.0767 | 21.7 | $500 ± 304 | $0.196 |
+| *Uniform (Day-1 ATE)* | *≈ 0* | *0.0766* | *17.4* | *≈ $351* | *$0.137* |
+
+Champion per the pre-registered rule: response's Qini edge over DR (0.0048)
+is **smaller than its own std** (0.0094) → declared a **statistical tie**;
+tie-break on profit + parsimony → **response model**. No uplift model clears
+it. Qini vs a random ranking (SE of the mean over 10 seeds): response 7.8,
+DR 6.4, S 2.8, X 0.9, T 1.0, forest 0.5 — **X, T and forest are
+statistically at random** on `visit`. Against uniform targeting, response is
++62% per contact (~2.9 SE of the mean above the uniform profit line).
+
+**`spend` challenger — single split** (test n = 8,523, 83 converters, test
+ATE $0.96; full-arm ATE $0.77), uplift@10% / @30% in USD:
+
+| Model | @10% | @30% |
+| --- | --- | --- |
+| Causal forest | 1.871 | 0.876 |
+| DR-learner | 1.509 | 0.595 |
+| T-learner | 0.566 | 0.636 |
+| Random (this split) | 0.229 | 0.705 |
+| X-learner | 0.071 | 0.095 |
+
+**Noise floor — random ranking re-drawn over 30 fresh splits** (the bar every
+single-split number above must clear):
+
+| Target @ k | mean | std | min | max |
+| --- | --- | --- | --- | --- |
+| spend @ 10% | 1.0726 | **1.0095** | −0.8895 | 4.1777 |
+| spend @ 30% | 0.8197 | 0.6750 | −0.5010 | 2.3850 |
+| visit @ 10% | 0.0773 | 0.0216 | 0.0421 | 0.1339 |
+| visit @ 30% | 0.0753 | 0.0146 | 0.0474 | 0.1104 |
+
+Findings (notebook 04):
+
+| Observation | Reading |
+| --- | --- |
+| No uplift model beats the response baseline over 10 seeds | Response tops Qini (0.0231) *and* profit ($569); the declared verdict is a statistical tie, broken toward response on profit + parsimony. Day-2's premise — response is the bar — survives its own test. |
+| Day-2's X-learner lead was noise | 0.0236 on one split → 0.0046 ± 0.0161 over seeds (0.9 SE above random). Single-split champions are coin flips with good PR; that is what the benchmark exists to catch. |
+| Qini and profit disagree | DR is 2nd on Qini but 5th on profit; S is 3rd on Qini but 2nd on profit. Ranking `visit` ≠ counting conversion dollars — the project rule demands both metrics for exactly this reason. |
+| Calibration: usable magnitudes, no skill | Both outcome models sit at slightly negative Brier skill vs the base rate, reliability gaps ≈ 0.034–0.038; Platt improves the held-out Brier only modestly. Calibrate before valuing, but select on Qini + profit. |
+| Forest intervals are wide but directional | Mean CI width 0.176 ≈ 2.3× the ATE; 42% of customers get intervals excluding zero and 97.6% of point estimates are positive — the forest says "who", not "how much", confidently. |
+| Spend ordering does not survive its own floor | A random ranking on spend spans −0.89 → 4.18 at 10% across seeds (std 1.01); the forest's 1.87 sits inside that band. `visit`'s floor is ~45× tighter — which is why the benchmark runs on `visit`. Any Day-4 spend claim must carry this uncertainty. |
+| Profit must be valued on the money outcome | The benchmark passes `conversion` as a 7th fold array; valuing the ranking outcome (`visit`) instead would have reported ≈ $7,900 rather than $569 on the same run — a ~14× overstatement. See the profit-formula note below. |
+
 ### Profit formula
 
 ```text
@@ -288,3 +468,9 @@ also be computed directly from `spend` — `profit(k) = margin · Δspend(k) −
 agree (within ~5%, rounding of `Δconv`). Values live in
 `configs/business_assumptions.yaml` (decided Day 1: `margin` 30%, `c` $0.10,
 `v` $34.91) and mirror into the README profit-assumptions table.
+
+**Day-3 money-outcome rule:** `Δconv(k)` must always be measured on the
+*conversion* outcome, even when the model ranks on another column (`visit`).
+`run_benchmark` therefore takes conversions as an extra fold array and values
+profit on it while Qini/uplift stay on the ranking target — valuing `visit`
+at $34.91/conversion instead overstated the same run ~14× ($7,900 → $569).
