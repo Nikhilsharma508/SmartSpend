@@ -222,7 +222,7 @@ class _ResponseBaseline:
     It predicts ``P(buy | X, treated)``, so its score tracks *purchasability*,
     not persuadability. It is included in every table because it is the bar an
     uplift model must clear — and because it is often embarrassingly competitive
-    on outcome-ranking metrics (notebook 03).
+    on outcome-ranking metrics (notebook 02).
     """
 
     name = "response"

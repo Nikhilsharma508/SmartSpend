@@ -1,6 +1,6 @@
 """Diagnostics on synthetic data -- runs without the raw CSV.
 
-Guards the non-numeric handling in ``smd_table``: notebook 01 reads the raw CSV,
+Guards the non-numeric handling in ``smd_table``: notebook 00 reads the raw CSV,
 where ``zip_code``/``channel`` arrive as pandas ``string`` dtype rather than
 ``category``, so the level expansion must key off "is numeric", not "is category".
 """

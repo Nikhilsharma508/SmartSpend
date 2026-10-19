@@ -30,12 +30,12 @@ Day 1 — data, scaffold, environment, experiment validation.
 - [x] Structured dataset spec — [`docs/datasets/hillstrom.md`](docs/datasets/hillstrom.md)
 - [x] Concept reference — [`docs/concepts.md`](docs/concepts.md)
 - [x] Hillstrom loader (`packages/datasets/hillstrom.py`) + experiment diagnostics
-- [x] EDA notebook — [`research/notebooks/01_hillstrom_eda.ipynb`](research/notebooks/01_hillstrom_eda.ipynb)
-- [x] Randomization + ATE notebook — [`research/notebooks/02_hillstrom_randomization_ate.ipynb`](research/notebooks/02_hillstrom_randomization_ate.ipynb)
-- [x] SMD table reviewed — 0 of 11 flagged, largest `|SMD|` 0.014 (notebook 02 §2)
-- [x] ATE table (95% CI) interpreted — `visit` +7.66 pp, `conversion` +0.68 pp, `spend` +$0.77 (notebook 02 §3)
-- [x] Binary arm chosen and justified — `mens`, beats Womens on every outcome (notebook 02 §1)
-- [x] Profit assumptions decided — 30% margin, $0.10/contact, `v` = $34.91 (notebook 02 §4)
+- [x] EDA notebook — [`research/notebooks/00_hillstrom_eda.ipynb`](research/notebooks/00_hillstrom_eda.ipynb)
+- [x] Randomization + ATE notebook — [`research/notebooks/01_hillstrom_randomization_ate.ipynb`](research/notebooks/01_hillstrom_randomization_ate.ipynb)
+- [x] SMD table reviewed — 0 of 11 flagged, largest `|SMD|` 0.014 (notebook 01 §2)
+- [x] ATE table (95% CI) interpreted — `visit` +7.66 pp, `conversion` +0.68 pp, `spend` +$0.77 (notebook 01 §3)
+- [x] Binary arm chosen and justified — `mens`, beats Womens on every outcome (notebook 01 §1)
+- [x] Profit assumptions decided — 30% margin, $0.10/contact, `v` = $34.91 (notebook 01 §4)
 
 Day 2 — feature pipeline, uplift metrics, response baseline + S/T/X learners.
 
@@ -43,23 +43,23 @@ Day 2 — feature pipeline, uplift metrics, response baseline + S/T/X learners.
 - [x] Feature pipeline + stratified splits — [`packages/causal/features.py`](packages/causal/features.py)
 - [x] Uplift metrics (Qini AUC, AUUC, uplift@k) + random baseline — [`packages/causal/metrics.py`](packages/causal/metrics.py)
 - [x] Qini plotting — [`packages/causal/plotting.py`](packages/causal/plotting.py)
-- [x] Baselines notebook — [`research/notebooks/03_hillstrom_uplift_baselines.ipynb`](research/notebooks/03_hillstrom_uplift_baselines.ipynb)
-- [x] Qini comparison + interpretation — X-learner leads narrowly (0.0236), S-learner shrinks to ~0, response baseline is competitive (notebook 03 §4–5)
+- [x] Baselines notebook — [`research/notebooks/02_hillstrom_uplift_baselines.ipynb`](research/notebooks/02_hillstrom_uplift_baselines.ipynb)
+- [x] Qini comparison + interpretation — X-learner leads narrowly (0.0236), S-learner shrinks to ~0, response baseline is competitive (notebook 02 §4–5)
 
 Day 3 — DR/causal-forest challengers, calibration, 10-seed benchmark.
 
 - [x] Learner factory (response/S/T/X/DR/forest, one `fit/predict/effect_interval` API) — [`packages/causal/learners.py`](packages/causal/learners.py)
 - [x] Calibration module (Brier, reliability, Platt/isotonic, CATE-by-decile) — [`packages/causal/calibration.py`](packages/causal/calibration.py)
 - [x] Benchmark runner — 10 seeds, mean ± spread, profit valued on conversions — [`packages/causal/benchmark.py`](packages/causal/benchmark.py)
-- [x] Learners + calibration notebook — [`research/notebooks/04_hillstrom_learners_calibration.ipynb`](research/notebooks/04_hillstrom_learners_calibration.ipynb)
-- [x] Champion chosen on Qini + profit (pre-registered rule) — statistical tie at the top → **response baseline**; no uplift model clears it (notebook 04 §8)
+- [x] Learners + calibration notebook — [`research/notebooks/03_hillstrom_learners_calibration.ipynb`](research/notebooks/03_hillstrom_learners_calibration.ipynb)
+- [x] Champion chosen on Qini + profit (pre-registered rule) — statistical tie at the top → **response baseline**; no uplift model clears it (notebook 03 §8)
 
 Day 4 — decision layer: registry, profit curve, multi-treatment, policy tree, fairness, power.
 
 - [x] Champion registry — `pipelines/train.py` → `models/champion.joblib` + provenance sidecar (`packages/causal/registry.py`); Day-6 API loads, never trains
 - [x] Stratified-sampling visibility — `split_balance_report` (per-fold SMD/events) + `stratify_extra` money-outcome option (`packages/causal/features.py`)
 - [x] Decision tools (5, typed with Pydantic) — `packages/decision/`: `optimize_budget`, `compare_scenarios`, `get_segment_profile`, `design_ab_test`, `get_model_card`
-- [x] Decision notebook — [`research/notebooks/05_hillstrom_decision_layer.ipynb`](research/notebooks/05_hillstrom_decision_layer.ipynb): profit curve (break-even 2%, peak 30% $858 with its CI), scenario table, multi-arm IPW, policy tree, zip_code fairness audit, power sizing
+- [x] Decision notebook — [`research/notebooks/04_hillstrom_decision_layer.ipynb`](research/notebooks/04_hillstrom_decision_layer.ipynb): profit curve (break-even 2%, peak 30% $858 with its CI), scenario table, multi-arm IPW, policy tree, zip_code fairness audit, power sizing
 - [x] Fairness audit — real contact disparity: Urban 59% vs 41% population share (zip-proxy split); group *effects* overlap cleanly; flagged in the model card, escalated to Day 6
 
 Day 5 — campaign copilot: gate (Decisions API) → plan (Day-4 tools) → write (pluggable LLM) → validate (V1–V4).
@@ -67,7 +67,7 @@ Day 5 — campaign copilot: gate (Decisions API) → plan (Day-4 tools) → writ
 - [x] Copilot pipeline — [`packages/copilot/`](packages/copilot/): router (3 named questions on one API call, calibrated thresholds, keyword fallback), planner (rule-based scenario extraction, cached holdout context, per-intent tool dispatch), providers (Decisions client; template / ollama / neurometric writers), validator (number-trace with citations, USD-only, causal-language rubric, section contract), JSONL trace under `traces/`
 - [x] Config — [`configs/copilot.yaml`](configs/copilot.yaml): thresholds (incl. `t_oos_confidence`), 1% trace tolerance, writer pick, prompt v2
 - [x] Seed eval — [`evals/seed_cases.yaml`](evals/seed_cases.yaml) (15 labelled cases) + [`evals/run_seed_eval.py`](evals/run_seed_eval.py) (fast-path/intent/tool accuracy, pass@1/2, p50/p95)
-- [x] Copilot notebook — [`research/notebooks/06_hillstrom_copilot.ipynb`](research/notebooks/06_hillstrom_copilot.ipynb): live gate, 3-writer comparison on one brief, 4 use cases end-to-end, seed eval, validator torture (5/5 caught), fast-path timing, [`day6_copilot_latency.png`](docs/figures/day6_copilot_latency.png)
+- [x] Copilot notebook — [`research/notebooks/05_hillstrom_copilot.ipynb`](research/notebooks/05_hillstrom_copilot.ipynb): live gate, 3-writer comparison on one brief, 4 use cases end-to-end, seed eval, validator torture (5/5 caught), fast-path timing, [`day5_copilot_latency.png`](docs/figures/day5_copilot_latency.png)
 - [x] Live calibration — fast-path 1.00, intent/tools 1.00 on the seed set; briefs ~8 s total (ollama ~3.6 s of it), fast paths ~1.2 s gate-only; first-draft validator pass 0.44–0.78 → ~0.5–1.0 after the one rewrite
 
 Days 6–7: see [`plan.md`](plan.md).
@@ -103,7 +103,7 @@ uv run mypy packages pipelines
 ## Profit assumptions
 
 Stated openly, since every profit figure depends on them. **Decided on Day 1**
-(notebook 02 §4; rationale in `configs/business_assumptions.yaml` — change only
+(notebook 01 §4; rationale in `configs/business_assumptions.yaml` — change only
 with a recorded reason).
 
 | Assumption | Value | Notes |
@@ -125,11 +125,11 @@ currency. Edit `configs/business_assumptions.yaml` — the copilot reads it.
 
 ## Headline results
 
-**Day-1 baseline (notebook 02):** uniformly contacting the `mens` arm earns
+**Day-1 baseline (notebook 01):** uniformly contacting the `mens` arm earns
 ≈ **+$0.13 per contact** (+$131–$138 per 1,000 contacted, after send costs) at
 the assumptions above — the number every Day-2 model must beat.
 
-**Day 2 (notebook 03):** ranking models on `visit`, test split. The honest
+**Day 2 (notebook 02):** ranking models on `visit`, test split. The honest
 headline: uplift models do **not** cleanly beat the response baseline here, and
 the signal is weak overall. The X-learner leads narrowly; the S-learner collapses
 toward random. Full table and reading in
@@ -140,7 +140,7 @@ toward random. Full table and reading in
 | Qini AUC | 0.0199 | **0.0236** |
 | uplift@30% (incremental visits/customer) | 0.0899 | **0.1015** |
 
-**Day 3 (notebook 04):** the same comparison repeated over **10 seeds**, with
+**Day 3 (notebook 03):** the same comparison repeated over **10 seeds**, with
 six learners and profit valued on **conversions** (not visits). The honest
 headline: **no uplift model beats the response baseline.** Response tops Qini
 (0.0231 ± 0.0094) *and* profit ($569 per test split = $0.223/contact vs
@@ -162,7 +162,7 @@ Full benchmark, noise floors and the champion reasoning in
 *Profit per $10k spend = net profit per contact (10-seed mean, after contact
 cost) × 100,000 contacts; $10k buys 100k contacts at $0.10 each.*
 
-**Day 4 (notebook 05):** the champion becomes a **registered artifact**
+**Day 4 (notebook 04):** the champion becomes a **registered artifact**
 (`models/champion.joblib` + provenance sidecar; the ledger's single-split row
 reproduced exactly) and five typed tools turn the ranking into decisions.
 Honest headlines: the profit curve breaks even at 2% depth and peaks at 30%
@@ -179,7 +179,7 @@ while group effects overlap cleanly. And a +1pp lift test needs 15,510/arm
 (16 days at 2,000/day) — Day 3's wide intervals were a sample-size story all
 along. Full numbers in [`docs/concepts.md`](docs/concepts.md).
 
-**Day 5 (notebook 06):** the campaign copilot — gate → plan → write →
+**Day 5 (notebook 05):** the campaign copilot — gate → plan → write →
 validate. Live headline: the three-question Decisions gate routes all 15
 seed cases correctly (**fast-path accuracy 1.00**, ~1.2 s gate-only for
 decline/redirect/clarify with zero writer tokens); every use case produces a

@@ -2,7 +2,7 @@
 
 Synthetic data with a *known* winner, so the tests can assert the benchmark
 surfaces it, rather than just checking that rows appear. A tiny learner count
-and seed count keep the suite fast; the real 10-seed run lives in notebook 04.
+and seed count keep the suite fast; the real 10-seed run lives in notebook 03.
 """
 
 from __future__ import annotations

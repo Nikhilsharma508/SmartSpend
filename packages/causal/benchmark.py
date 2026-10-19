@@ -27,7 +27,7 @@ construction since it comes from the same splitter. When it is omitted, profit
 falls back to the ranking outcome, which is only correct when that outcome *is*
 the money (e.g. ranking and paying on ``spend`` itself).
 
-Notebook 04 drives this over the real Hillstrom data; the tests here use a small
+Notebook 03 drives this over the real Hillstrom data; the tests here use a small
 synthetic set so the suite stays fast.
 """
 

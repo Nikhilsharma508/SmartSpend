@@ -27,7 +27,7 @@ Legend:
 - [x] [YOU] Fix profit assumptions: margin % on spend, cost per email, currency handling (USD or a stated INR rate)
 
 Done when: notebook 01 has the SMD table, ATE table and a written assumptions block ✅
-*(Work lives across `01_hillstrom_eda.ipynb` + `02_hillstrom_randomization_ate.ipynb` — the deliberate EDA/causal split.)*
+*(Work lives across `00_hillstrom_eda.ipynb` + `01_hillstrom_randomization_ate.ipynb` — the deliberate EDA/causal split.)*
 
 ---
 
@@ -41,7 +41,7 @@ Done when: notebook 01 has the SMD table, ATE table and a written assumptions bl
 - [x] [YOU] Note the first finding: does the response model rank "sure things" on top?
 
 Done when: one Qini plot with all models and a short written interpretation ✅
-*(Notebook 03 + `docs/figures/day2_qini_models_vs_baseline.png`. Finding: uplift models do **not** cleanly beat the response baseline on `visit`; X-learner leads narrowly at Qini 0.0236, S-learner shrinks to ~0 — weak heterogeneity, sets up Day-3 DR/causal-forest challengers.)*
+*(Notebook 02 + `docs/figures/day2_qini_models_vs_baseline.png`. Finding: uplift models do **not** cleanly beat the response baseline on `visit`; X-learner leads narrowly at Qini 0.0236, S-learner shrinks to ~0 — weak heterogeneity, sets up Day-3 DR/causal-forest challengers.)*
 
 ---
 
@@ -56,7 +56,7 @@ Done when: one Qini plot with all models and a short written interpretation ✅
 - [x] [YOU] Pick the champion model and write the justification (Qini + profit, not Brier) → **champion: response baseline**
 
 Done when: the benchmark table is filled in and the champion model is chosen with reasons ✅
-*(Notebook 04 + 4 figures `docs/figures/day3_*.png`. Finding: over 10 seeds **no
+*(Notebook 03 + 4 figures `docs/figures/day3_*.png`. Finding: over 10 seeds **no
 uplift model beats the response baseline** — response tops Qini (0.0231 ± 0.0094)
 and profit ($569/test split, $0.223/contact vs $0.137 uniform), but its edge over
 DR (0.0048) is inside its own spread → pre-registered rule declares a statistical
@@ -70,17 +70,17 @@ All numbers in `docs/concepts.md` findings ledger, Day 3.)*
 
 ## Day 4 — Decision layer ✅
 
-- [x] [YOU] Profit curve on holdout: break-even at 2% depth; peak at 30% = $858 (CI [140, 1,576]); 16/25 depth CIs include zero — no optimal-depth claim from one split (notebook 05 §3)
-- [x] [YOU] Compare against target-all, random and response-score targeting at a fixed budget — target-all $1,451 at 3.3× the budget (infeasible at 30%); champion $858 vs random $435, CIs overlap (notebook 05 §4)
-- [x] [YOU] Multi-treatment: "which email, if any?" per customer — per-arm DR + argmax policy valued with IPW; argmax-all $500 vs mens-all $396 (inside IPW noise); budget-limited top-30% lost $70 (notebook 05 §5)
-- [x] [YOU] Policy tree: readable segment rules, sanity-checked — econml `DRPolicyTree` (causalml's `SingleTreeCateInterpreter` was removed upstream in 0.18); 6 segments; every holdout-graded CI excludes zero, contradicting the tree's "no email" labels — trees are effect maps, not profit oracles (notebook 05 §6)
-- [x] [YOU] Fairness check: targeting rate and uplift by `zip_code` — real contact disparity (Urban 59% vs 41% population share via a `zip_code_Urban` split); group effects overlap cleanly; flagged in the model card, escalated to Day 6 (notebook 05 §7)
-- [x] [YOU] Power analysis for the next test: realistic MDE → sample size and duration — +1pp on the 10.6% visit rate needs 15,510/arm ≈ 16 days at 2,000/day (notebook 05 §8)
+- [x] [YOU] Profit curve on holdout: break-even at 2% depth; peak at 30% = $858 (CI [140, 1,576]); 16/25 depth CIs include zero — no optimal-depth claim from one split (notebook 03 §3)
+- [x] [YOU] Compare against target-all, random and response-score targeting at a fixed budget — target-all $1,451 at 3.3× the budget (infeasible at 30%); champion $858 vs random $435, CIs overlap (notebook 03 §4)
+- [x] [YOU] Multi-treatment: "which email, if any?" per customer — per-arm DR + argmax policy valued with IPW; argmax-all $500 vs mens-all $396 (inside IPW noise); budget-limited top-30% lost $70 (notebook 03 §5)
+- [x] [YOU] Policy tree: readable segment rules, sanity-checked — econml `DRPolicyTree` (causalml's `SingleTreeCateInterpreter` was removed upstream in 0.18); 6 segments; every holdout-graded CI excludes zero, contradicting the tree's "no email" labels — trees are effect maps, not profit oracles (notebook 03 §6)
+- [x] [YOU] Fairness check: targeting rate and uplift by `zip_code` — real contact disparity (Urban 59% vs 41% population share via a `zip_code_Urban` split); group effects overlap cleanly; flagged in the model card, escalated to Day 6 (notebook 03 §7)
+- [x] [YOU] Power analysis for the next test: realistic MDE → sample size and duration — +1pp on the 10.6% visit rate needs 15,510/arm ≈ 16 days at 2,000/day (notebook 03 §8)
 - [x] [YOU] (added) Champion registry — `pipelines/train.py` → `models/champion.joblib` + provenance sidecar (`packages/causal/registry.py`); the ledger's single-split row reproduces exactly
 - [x] [YOU] (added) Stratified-sampling visibility — `split_balance_report` (per-fold SMD/events) + `stratify_extra` money-outcome option (a verified no-op on Hillstrom: conversion nests inside visit)
 - [x] [AGENT] Wrap these as 5 typed tools (optimize_budget, compare_scenarios, get_segment_profile, design_ab_test, get_model_card) with Pydantic schemas and pytest tests — `packages/decision/`, 16 tests in `tests/test_decision.py`
 
-Done when: all 5 tools are callable from Python and the tests pass — ✅ (notebook 05 §9 + test suite)
+Done when: all 5 tools are callable from Python and the tests pass — ✅ (notebook 03 §9 + test suite)
 
 ---
 
@@ -94,7 +94,7 @@ Done when: all 5 tools are callable from Python and the tests pass — ✅ (note
 - [x] [AGENT] `packages/copilot/` — router / planner / writer / validator / providers / trace + the `run_request` orchestrator; JSONL trace per stage under `traces/`; 64 copilot tests (175 repo-wide)
 - [x] [AGENT] Number extraction — USD/`%`/counts/signed decimals with the V1 citation paths; normalizes LLM typography (U+2010+ dashes used as minus, no-break digit grouping like `2 443`) — the main live first-draft failure mode, found and fixed by running the pipeline live
 
-Done when: an end-to-end brief is generated for all 4 use cases and passes the validator — ✅ (notebook 06 §3: all four intents routed correctly, all drafts pass V1–V4; measured latencies and provider verdicts in `docs/concepts.md` §7 + Day-5 ledger)
+Done when: an end-to-end brief is generated for all 4 use cases and passes the validator — ✅ (notebook 04 §3: all four intents routed correctly, all drafts pass V1–V4; measured latencies and provider verdicts in `docs/concepts.md` §7 + Day-5 ledger)
 
 ---
 

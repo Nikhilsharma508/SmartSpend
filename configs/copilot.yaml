@@ -13,9 +13,9 @@ router:
 
 planner:
   default_depth: 0.30     # targeting depth when no budget is stated
-  max_depth: 0.50         # budget-derived depth is capped here (k_max, as in notebook 05)
+  max_depth: 0.50         # budget-derived depth is capped here (k_max, as in notebook 04)
   default_mde: 0.01       # +1pp on the visit rate for test design
-  default_daily_eligible: 2000   # customers/day seen in notebook 05's power sizing
+  default_daily_eligible: 2000   # customers/day seen in notebook 04's power sizing
 
 validator:
   rel_tolerance: 0.01     # a cited number matches a tool value within 1% relative
@@ -32,7 +32,7 @@ writer:
 prompts:
   prompt_version: v2      # stamped into the trace; bump when prompts change
                           # v2: anti-derivation rule (no derived shares/relative CI)
-                          # after live pass@1 findings, notebook 06
+                          # after live pass@1 findings, notebook 05
 
 trace:
   enabled: true           # one JSONL row per stage under traces/ (git-ignored)

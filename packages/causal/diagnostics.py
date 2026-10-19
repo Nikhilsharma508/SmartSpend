@@ -20,7 +20,7 @@ def _levels(df: pd.DataFrame, col: str) -> list:
     Numeric and binary columns are compared as a single variable (``None``);
     anything else -- pandas ``category``, ``string`` or ``object`` -- is expanded
     to one-vs-rest levels. Keying off "is numeric" rather than "is categorical"
-    keeps this working when a string column arrives un-cast (notebook 01 reads
+    keeps this working when a string column arrives un-cast (notebook 00 reads
     the raw CSV, where ``zip_code``/``channel`` load as ``string`` dtype).
     """
     if pd.api.types.is_numeric_dtype(df[col]):

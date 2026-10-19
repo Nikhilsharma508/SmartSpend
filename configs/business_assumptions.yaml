@@ -1,6 +1,6 @@
 # Business assumptions for UpliftIQ.
 # Every figure here must also appear in the brief's "assumptions" section.
-# Decided on Day 1 (rationale: notebook 02 §4). Change only with a recorded reason.
+# Decided on Day 1 (rationale: notebook 01 §4). Change only with a recorded reason.
 
 currency:
   reporting: USD          # USD only (decided): Hillstrom spend is already USD

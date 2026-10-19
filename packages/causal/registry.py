@@ -1,6 +1,6 @@
 """Model registry: persist the *finalized* model, never the exploratory fits.
 
-Every model trained so far — notebooks 03/04, the benchmark loop, the test
+Every model trained so far — notebooks 02/04, the benchmark loop, the test
 suite — is in-memory by design: those exist to be *measured*, not served. This
 module is the one place a model is written to disk, and it holds exactly one
 kind of artifact: the finalized model the pre-registered champion rule picked

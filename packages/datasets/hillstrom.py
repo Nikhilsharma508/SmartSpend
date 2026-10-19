@@ -47,7 +47,7 @@ ARM_LABELS = {"mens": ARM_MENS, "womens": ARM_WOMENS}
 
 #: Pre-treatment covariates to be used as model features.
 #: ``history_segment`` is deliberately excluded (collinear with ``history``);
-#: notebook 01 shows the correlation behind that call.
+#: notebook 00 shows the correlation behind that call.
 FEATURES = [
     "recency",
     "history",
@@ -70,7 +70,7 @@ OUTCOMES = ["visit", "conversion", "spend"]
 #: Columns present in the frame returned by :func:`fetch_hillstrom` that must
 #: never be used as features: the treatment assignment (``segment``) and the
 #: derived treatment indicator (``treatment``), plus the three post-treatment
-#: outcomes. Notebook 01 states the evidence for each verdict.
+#: outcomes. Notebook 00 states the evidence for each verdict.
 LEAKY_COLUMNS = ["segment", "treatment", "visit", "conversion", "spend"]
 
 
@@ -127,7 +127,7 @@ def fetch_hillstrom(
         keep all three arms (no ``treatment`` column is added).
     normalize_zip_spelling:
         Fix the source typo ``Surburban`` -> ``Suburban``. The typo is surfaced
-        in notebook 01; this flag exists so the fix is explicit and reversible.
+        in notebook 00; this flag exists so the fix is explicit and reversible.
     as_category:
         Cast ``zip_code``, ``channel`` and ``segment`` to pandas ``category``.
     path:
@@ -152,7 +152,7 @@ def fetch_hillstrom(
         raise ValueError(f"Raw Hillstrom CSV is missing columns: {sorted(missing)}")
 
     if normalize_zip_spelling:
-        # Source typo present in 28,776 rows; shown in notebook 01.
+        # Source typo present in 28,776 rows; shown in notebook 00.
         df["zip_code"] = df["zip_code"].replace({"Surburban": "Suburban"})
 
     if arm in {"mens", "womens"}:

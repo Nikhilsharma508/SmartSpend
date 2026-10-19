@@ -85,7 +85,7 @@ they parse correctly only with a real CSV reader (verified: 0 `NaN` after load).
 The loader keeps this column as plain strings rather than an ordered category. The
 labels are ordered, but encoding that order would assert an equally-spaced ordinal
 scale — a modelling choice the project does not make, since `history_segment` is
-excluded from `FEATURES` as a deterministic function of `history` (§4). Notebook 01
+excluded from `FEATURES` as a deterministic function of `history` (§4). Notebook 00
 shows the bucket ranges nesting exactly inside the `history` values.
 
 | Bucket label (as stored) | Customers |

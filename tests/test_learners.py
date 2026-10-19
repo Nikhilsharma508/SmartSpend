@@ -3,7 +3,7 @@
 Uses a small synthetic dataset rather than Hillstrom: the point is to check the
 *interface contract* every learner must satisfy (fit/predict shapes, sign
 conventions, interval support), not to measure real performance. Full-model
-behaviour is benchmarked in notebook 04 over 10 seeds.
+behaviour is benchmarked in notebook 03 over 10 seeds.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _synthetic(n: int = 600, seed: int = 0, continuous: bool = False):
 
 
 # A fast subset for the per-learner interface checks; the full set is covered
-# by the round-trip test below and by notebook 04.
+# by the round-trip test below and by notebook 03.
 FAST_LEARNERS: tuple[LearnerName, ...] = ("response", "s", "t", "dr", "forest")
 
 
@@ -64,7 +64,7 @@ def test_response_baseline_ranks_persuadables_low():
     """The baseline ranks by P(buy | treated), so its top customers convert in
     *both* arms — i.e. its score is not a good uplift ranking. We only assert
     it produces a valid ranking here; the sure-things finding lives in
-    notebook 03, measured on real data."""
+    notebook 02, measured on real data."""
     X, t, y = _synthetic()
     model = make_learner("response", random_state=0)
     model.fit(X, t, y)

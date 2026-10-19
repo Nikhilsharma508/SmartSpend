@@ -18,7 +18,7 @@ from packages.decision.schemas import AssumptionsSchema, ModelCard
 #: measured contact rate and holdout uplift by ``zip_code``; the contact
 #: disparity is real (flagged, not smoothed), the effect claim stays overall.
 FAIRNESS_NOTE = (
-    "Fairness audited on the holdout by zip_code (notebook 05, section 7): the "
+    "Fairness audited on the holdout by zip_code (notebook 04, section 7): the "
     "policy tree would email Urban customers at 59% against their 41% "
     "population share — a zip-proxy contact disparity, flagged here rather "
     "than smoothed over. Group uplift intervals all exclude zero and overlap "
@@ -32,14 +32,14 @@ WHEN_NOT_TO_USE: list[str] = [
     "Not validated outside the Hillstrom email experiment — no claim transfers "
     "to another audience, channel or period.",
     "Do not target on predicted *spend*: the spend ordering sat inside its own "
-    "random noise floor (Day 3, notebook 04 section 6).",
+    "random noise floor (Day 3, notebook 03 section 6).",
     "Do not present the champion's edge over the DR-learner as a win: its "
     "10-seed Qini edge (0.0048) is inside its own spread — a statistical tie, "
     "broken on profit and parsimony only.",
     "Not for individual-level causal claims (\"this customer will convert "
     "because of the email\") — intervals are wide per customer.",
     "Do not use visit-scores as conversion-probabilities without the per-arm "
-    "recalibration from notebook 04 (raw Brier skill vs base rate is ~zero).",
+    "recalibration from notebook 03 (raw Brier skill vs base rate is ~zero).",
 ]
 
 #: Structural limitations that no retraining will fix.

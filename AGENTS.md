@@ -83,9 +83,9 @@ Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
   a metric or a result, add it to that file in the same change — definitions in the
   numbered sections, values in the findings ledger. It is the canonical concept +
   numbers doc; notebooks only explain briefly and link back.
-- `research/notebooks/` is split by concern: `01_hillstrom_eda` is descriptive only,
-  `02_hillstrom_randomization_ate` introduces the causal vocabulary (arm, SMD, ATE).
-  Keep causal concepts out of `01`.
+- `research/notebooks/` is split by concern: `00_hillstrom_eda` is descriptive only,
+  `01_hillstrom_randomization_ate` introduces the causal vocabulary (arm, SMD, ATE).
+  Keep causal concepts out of `00`.
 - ruff ignores `E402`/`E401`/`I001` in `*.ipynb` because cells bootstrap `sys.path` before
   importing project packages — do not "fix" that ordering.
 - mypy runs with `ignore_missing_imports = true` and `files = ["packages", "pipelines"]`;

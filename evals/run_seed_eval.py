@@ -1,6 +1,6 @@
 """Seed eval runner — the 15 Day-5 cases end-to-end, with a metrics report.
 
-Not a test (it needs the live gate/writers); notebook 06 and Day 6 call it::
+Not a test (it needs the live gate/writers); notebook 05 and Day 6 call it::
 
     uv run python evals/run_seed_eval.py                     # configured writer
     uv run python evals/run_seed_eval.py --provider template  # offline, no writer cost

@@ -174,7 +174,7 @@ must clear, because it is simple, well-understood, and already good at finding
 converters.
 
 Its blind spot is the project's premise: it ranks **sure things** highest (high
-`P(buy)`, low incremental effect). The check used in notebook 03 is to split the
+`P(buy)`, low incremental effect). The check used in notebook 01 is to split the
 scored population into terciles and compare the treated-vs-control outcome gap
 in each. If the *level* rises in both arms together while the *gap* stays flat,
 the score is tracking purchasability, not persuadability.
@@ -360,7 +360,7 @@ group's **contact rate** (share the policy would email) against its
 Two failure modes it surfaces: *disparate contact* (a group targeted far
 above its population share without supporting evidence) and *unsupported
 contact* (targeting a group whose uplift interval includes zero). Measured on
-Hillstrom (notebook 05): the policy tree emails Urban at 59% against its 41%
+Hillstrom (notebook 03): the policy tree emails Urban at 59% against its 41%
 share — a real *disparate-contact* finding driven by a `zip_code` split —
 while every group's uplift interval excludes zero and overlaps its siblings,
 so no *effect* disparity is supported. The model card carries both facts: the
@@ -469,7 +469,7 @@ flags and `degraded=True` — the reader sees exactly what could not be verified
 `evals/seed_cases.yaml` (15 labelled cases) + `evals/run_seed_eval.py` score
 fast-path accuracy (all cases), intent and tool-call correctness (brief cases),
 validator pass@1 (first writer draft) / pass@2 (final draft after the rewrite,
-briefs only), and p50/p95 latency. Notebook 06 adds a **validator torture
+briefs only), and p50/p95 latency. Notebook 05 adds a **validator torture
 test**: five hand-corrupted drafts (invented `$`, a rupee amount, a causal
 overclaim, a deleted section, a misquoted depth) — each must be caught by the
 owning rule.
@@ -492,19 +492,19 @@ to this table.
 
 | Quantity | Value | Source |
 | --- | --- | --- |
-| Raw shape | 64,000 × 12 | notebook 01 |
-| Arms | 21,307 Mens / 21,387 Womens / 21,306 No E-Mail | notebook 01 |
-| Missing values | 0 | notebook 01 |
-| Exact duplicate rows | 6,562 (10.2%) | notebook 01 |
-| Spend zero-inflation | 99.1% of rows have `spend == 0` | notebook 01 |
-| `spend > 0` ⟺ `conversion == 1` | 578 rows, exactly | notebook 01 |
-| Spend among converters | min $29.99, mean $116.36, max $499.00 | notebook 01 |
-| `zip_code` typo | `Surburban` in 28,776 rows | notebook 01 |
-| Binary arm (`mens`) | 42,613 rows, 0 of 11 SMD flagged, largest \|SMD\| 0.014 | notebooks 01–02 |
-| ATE `visit` (mens vs control) | +0.0766 [0.0700, 0.0832] | notebook 02 |
-| ATE `conversion` (mens vs control) | +0.0068 [0.0050, 0.0086] | notebook 02 |
-| ATE `spend` (mens vs control) | +$0.7698 [$0.4851, $1.0545] | notebook 02 |
-| Day-1 profit baseline | ≈ +$0.13 per uniform contact (30% margin, $0.10/contact) | notebook 02 |
+| Raw shape | 64,000 × 12 | notebook 00 |
+| Arms | 21,307 Mens / 21,387 Womens / 21,306 No E-Mail | notebook 00 |
+| Missing values | 0 | notebook 00 |
+| Exact duplicate rows | 6,562 (10.2%) | notebook 00 |
+| Spend zero-inflation | 99.1% of rows have `spend == 0` | notebook 00 |
+| `spend > 0` ⟺ `conversion == 1` | 578 rows, exactly | notebook 00 |
+| Spend among converters | min $29.99, mean $116.36, max $499.00 | notebook 00 |
+| `zip_code` typo | `Surburban` in 28,776 rows | notebook 00 |
+| Binary arm (`mens`) | 42,613 rows, 0 of 11 SMD flagged, largest \|SMD\| 0.014 | notebooks 00–02 |
+| ATE `visit` (mens vs control) | +0.0766 [0.0700, 0.0832] | notebook 00 |
+| ATE `conversion` (mens vs control) | +0.0068 [0.0050, 0.0086] | notebook 00 |
+| ATE `spend` (mens vs control) | +$0.7698 [$0.4851, $1.0545] | notebook 00 |
+| Day-1 profit baseline | ≈ +$0.13 per uniform contact (30% margin, $0.10/contact) | notebook 00 |
 
 ### Hillstrom — Day 2 (ranking models on `visit`)
 
@@ -520,7 +520,7 @@ classifier) and a seeded random ranking.
 | Random | 0.0079 | 0.0021 | 0.0655 | 0.0713 |
 | S-learner | 0.0069 | 0.0045 | 0.1055 | 0.0834 |
 
-Findings (notebook 03):
+Findings (notebook 01):
 
 | Observation | Reading |
 | --- | --- |
@@ -532,7 +532,7 @@ Findings (notebook 03):
 ### Hillstrom — Day 3 (DR/forest, calibration, stability)
 
 **Single split** (`RANDOM_STATE = 42`, test n = 8,523, ranking on `visit`;
-notebook 04 §2). Day-3 challengers added to the Day-2 pack:
+notebook 02 §2). Day-3 challengers added to the Day-2 pack:
 
 | Model | Qini AUC | uplift@10% | uplift@30% |
 | --- | --- | --- | --- |
@@ -558,7 +558,7 @@ result of record (note DR's one-split Qini of 0.0081 ≈ random against its
 | CIs excluding 0 | 42.4% |
 
 **CATE calibration by deciles** (decile 1 → 10 means, predicted vs observed
-uplift; notebook 04 §4):
+uplift; notebook 02 §4):
 
 | Model | Predicted (d1 → d10) | Observed (d1 → d10) | Spearman |
 | --- | --- | --- | --- |
@@ -629,7 +629,7 @@ single-split number above must clear):
 | visit @ 10% | 0.0773 | 0.0216 | 0.0421 | 0.1339 |
 | visit @ 30% | 0.0753 | 0.0146 | 0.0474 | 0.1104 |
 
-Findings (notebook 04):
+Findings (notebook 02):
 
 | Observation | Reading |
 | --- | --- |
@@ -643,7 +643,7 @@ Findings (notebook 04):
 
 ### Hillstrom — Day 4 (decision layer)
 
-Numbers from notebook 05; definitions in section 6. Holdout = the champion's
+Numbers from notebook 03; definitions in section 6. Holdout = the champion's
 seed-42 test split (n = 8,523, 81 converters) unless noted.
 
 **Registered champion** (`models/champion.joblib`, via `pipelines/train.py`;
@@ -734,7 +734,7 @@ fairness note that names the zip-proxy contact disparity.
 
 | Day-4 finding | Evidence |
 | --- | --- |
-| The champion is now an artifact, not a variable | Registry + sidecar; notebook 05's load reproduces the ledger's single-split row (Qini 0.0199, uplift 0.0899) and the profit metric to the cent ($857.60). |
+| The champion is now an artifact, not a variable | Registry + sidecar; notebook 03's load reproduces the ledger's single-split row (Qini 0.0199, uplift 0.0899) and the profit metric to the cent ($857.60). |
 | The stratified protocol was already sound here — verification, not repair | Converter shares are exactly proportional under the default split because conversion nests inside visit; `stratify_extra` is a tested no-op on this dataset, kept for datasets where money ≠ ranking target. |
 | One split cannot price a depth | 16 of 25 profit-curve CIs include zero; the wobble between neighbouring depths is noise. Break-even at 2% is the only robust depth statement. |
 | Target-all is budget-feasibility's victim, not economics' | $1,451 absolute profit at 3.3× the budget; $0.17/contact vs champion $0.34. The scenario tool exists to make that trade visible. |
@@ -746,7 +746,7 @@ fairness note that names the zip-proxy contact disparity.
 ### Hillstrom — Day 5 (campaign copilot)
 
 Live numbers (Decisions API + ollama `gpt-oss:120b-cloud` + NEUROMETRIC
-gateway) from notebook 06 and the calibration runs; definitions in section 7.
+gateway) from notebook 04 and the calibration runs; definitions in section 7.
 Context = the Day-4 champion's split (n = 8,523). Fast-path and pass@ ranges
 are spread across repeated live runs on the same day.
 
@@ -762,7 +762,7 @@ are spread across repeated live runs on the same day.
 | Brief total (gate + plan + write + validate) | 6.4–10.0 s typical; median 8.26 s in the figure |
 | Seed eval — fast-path accuracy (15 live cases) | **1.00** (0.93–1.00 across three runs) |
 | Seed eval — intent accuracy / tool-call correctness (9 briefs) | **1.00 / 1.00** |
-| Seed eval — validator pass@1 / pass@2 (9 briefs, live ollama) | 0.556 / 0.667 in notebook 06 (ranges 0.44–0.78 / 0.50–1.00) — the rewrite-retry is what closes first-draft gaps |
+| Seed eval — validator pass@1 / pass@2 (9 briefs, live ollama) | 0.556 / 0.667 in notebook 04 (ranges 0.44–0.78 / 0.50–1.00) — the rewrite-retry is what closes first-draft gaps |
 | Seed eval — latency | p50 4.93 s, p95 9.45 s |
 | Torture test (5 hand-corrupted drafts) | 5/5 caught, each by the owning rule |
 | Provider verdict | ollama is the default writer (passes V1–V4 at ~3.6 s); `neurometric/goal-setter` fails V1+V3 on the same brief (derived numbers, causal overclaims, 850 words) — the gateway needs a general-purpose model; the template is the always-on floor |
