@@ -1,0 +1,33 @@
+# Copilot configuration — the single source for every threshold, tolerance,
+# provider pick and default the Day-5 pipeline uses. Calibrated on
+# evals/seed_cases.yaml; re-checked on the ~50-case Day-6 set.
+
+router:
+  t_policy_risk: 0.70     # policy_risk noul >= this -> decline (template, no writer)
+  t_missing: 0.60         # missing_inputs noul >= this -> one clarifying question
+  t_confidence: 0.50      # intent choice confidence < this -> redirect
+
+planner:
+  default_depth: 0.30     # targeting depth when no budget is stated
+  max_depth: 0.50         # budget-derived depth is capped here (k_max, as in notebook 05)
+  default_mde: 0.01       # +1pp on the visit rate for test design
+  default_daily_eligible: 2000   # customers/day seen in notebook 05's power sizing
+
+validator:
+  rel_tolerance: 0.01     # a cited number matches a tool value within 1% relative
+  max_rewrites: 1         # one rewrite with the validator errors, then UNVERIFIED
+  allowed_constants: [95] # the "95%" confidence level itself may be cited
+
+writer:
+  provider: ollama        # template | ollama | neurometric (flip for ablation)
+  timeout_s: 60
+  ollama_base_url: "http://localhost:11434"
+  ollama_model: "gpt-oss:120b-cloud"
+  neurometric_model: "neurometric/goal-setter"
+
+prompts:
+  prompt_version: v1      # stamped into the trace; bump when prompts change
+
+trace:
+  enabled: true           # one JSONL row per stage under traces/ (git-ignored)
+  dir: "traces"
