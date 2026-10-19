@@ -219,7 +219,10 @@ def _usd(v: float) -> str:
 
 
 def _pct(frac: float) -> str:
-    return f"{frac:.0%}"
+    """Percent at one decimal, trailing zeros stripped — stays inside the
+    validator's 1% tolerance without writing '30.0%' for a clean 30%."""
+    text = f"{frac * 100:.1f}".rstrip("0").rstrip(".")
+    return f"{text}%"
 
 
 def _runs_by_name(request: DraftRequest) -> dict[str, dict[str, Any] | None]:
@@ -312,9 +315,10 @@ def _render_plan_or_whatif(request: DraftRequest, tools: dict[str, dict[str, Any
     tail = ""
     if request.intent is Intent.PLAN:
         if design:
+            mde_pp = f"{design.get('mde_absolute', 0.01) * 100:g}"
             tail = (
                 f"## Next test\nConfirm on live traffic before scaling: at a "
-                f"+{design.get('mde_absolute', 0.01) * 100:.0f} percentage-point MDE "
+                f"+{mde_pp} percentage-point MDE "
                 f"on the visit rate, plan for {design.get('n_per_arm', 0):,.0f} "
                 f"customers per arm ({design.get('n_total', 0):,.0f} total, "
                 f"{design.get('duration_days', 0)} days at "
@@ -365,8 +369,9 @@ def _render_explain(request: DraftRequest, tools: dict[str, dict[str, Any] | Non
         arm = s.get("policy_arm", "?")
         lo = s.get("uplift_visit_ci_low", 0.0)
         hi = s.get("uplift_visit_ci_high", 0.0)
+        share = _pct(s.get("share", 0.0))
         lines.append(
-            f"- Segment {s.get('segment_id')} ({rules}): {s.get('share', 0.0):.0%} of the holdout "
+            f"- Segment {s.get('segment_id')} ({rules}): {share} of the holdout "
             f"({s.get('n_eval', 0):,.0f} customers); policy says **{arm}**; measured visit uplift "
             f"{s.get('uplift_visit', 0.0):+.4f} (95% interval [{lo:+.4f}, {hi:+.4f}])."
         )
@@ -401,12 +406,12 @@ def _render_test_design(request: DraftRequest, tools: dict[str, dict[str, Any] |
         f"eligible per day, splitting traffic evenly between email and no-email.\n"
     )
     baseline = design.get("baseline_rate", 0.0)
-    mde_abs = design.get("mde_absolute", 0.0) * 100
+    mde_abs = f"{design.get('mde_absolute', 0.0) * 100:g}"
     mde_rel = design.get("mde_relative", 0.0)
     watch = (
         f"## What to watch\nPrimary metric: visit rate, baseline {baseline:.4f} "
-        f"in control. Detect an absolute lift of {mde_abs:.1f} percentage "
-        f"points ({mde_rel:.1%} relative) at alpha "
+        f"in control. Detect an absolute lift of {mde_abs} percentage "
+        f"points ({mde_rel:.2%} relative) at alpha "
         f"{design.get('alpha', 0.05)} and power {design.get('power', 0.8)}; "
         f"call it success only if the confidence interval excludes zero.\n"
     )

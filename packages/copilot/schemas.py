@@ -168,6 +168,9 @@ class BriefPackage(BaseModel):
         default=False, description="True when [UNVERIFIED] flags were appended after max rewrites."
     )
     provider: str = Field(default="template", description="Writer that produced the prose.")
+    draft_attempts: int = Field(
+        default=1, description="Drafts made before this one (0-based retry count)."
+    )
     trace_id: str = ""
     latency_s: float = 0.0
     stage_latencies: dict[str, float] = Field(default_factory=dict)
