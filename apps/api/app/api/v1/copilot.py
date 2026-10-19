@@ -59,4 +59,17 @@ def answer(payload: CopilotRequest, db: DbDep) -> dict:
     )
     db.commit()
 
+    # Best-effort MLflow tracking of the deterministic decision run (never
+    # blocks or fails the response).
+    try:
+        from packages.tracking.mlflow import log_decision_run
+
+        log_decision_run(
+            "copilot",
+            {"question": payload.question, "trace_id": pkg.trace_id, "fast_path": pkg.fast_path},
+            {"draft_attempts": getattr(pkg, "draft_attempts", 1)},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     return pkg.model_dump()
