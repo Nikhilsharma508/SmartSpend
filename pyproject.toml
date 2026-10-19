@@ -5,8 +5,10 @@ description = "SmartSpend — causal promo targeting with a grounded GenAI campa
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.20.0",
     "causalml>=0.18.0",
     "econml>=0.17.0",
+    "fastapi>=0.150.0",
     "ipykernel>=7.4.0",
     "jupyterlab>=4.6.4",
     "langchain-ollama>=1.1.0",
@@ -17,6 +19,7 @@ dependencies = [
     "pandas>=3.0.6",
     "pyarrow>=26.0.0",
     "pydantic>=2.14.1",
+    "pydantic-settings>=2.16.0",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
@@ -24,7 +27,9 @@ dependencies = [
     "scikit-uplift>=0.5.1",
     "scipy>=1.17.1",
     "seaborn>=0.13.2",
+    "sqlalchemy>=2.1.5",
     "statsmodels>=0.15.0",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [dependency-groups]
@@ -36,7 +41,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "apps/api"]
 testpaths = ["tests", "apps/api/tests"]
 addopts = "-q"
 
