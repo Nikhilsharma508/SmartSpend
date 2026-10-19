@@ -1,7 +1,7 @@
 [project]
 name = "smartspend"
 version = "0.1.0"
-description = "UpliftIQ — causal promo targeting with a grounded GenAI campaign copilot"
+description = "SmartSpend — causal promo targeting with a grounded GenAI campaign copilot"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

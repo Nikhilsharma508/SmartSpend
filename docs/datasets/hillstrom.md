@@ -21,7 +21,7 @@ verified against the actual file in `data/raw/`.
 | Encoding / format | UTF-8, RFC-4180 CSV, comma-delimited, quoted fields |
 | SHA-256 | `0e5893329d8b93cefecc571777672028290ab69865718020c78c7284f291aece` |
 
-### Role in UpliftIQ
+### Role in SmartSpend
 
 Hillstrom is the **only dataset** in this project. It carries the profit story because it
 records real `spend`, and its features are interpretable, which makes it the source for

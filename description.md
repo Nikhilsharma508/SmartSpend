@@ -1,14 +1,14 @@
-# UpliftIQ — Causal Promo Targeting with a GenAI Campaign Copilot
+# SmartSpend — Causal Promo Targeting with a GenAI Campaign Copilot
 
 Oct 17, 2026 · @Alpha
 
 ## Overview
 
-UpliftIQ decides who should receive a discount by estimating each customer's incremental response to it, then lets a marketer plan a campaign in plain language through a grounded GenAI copilot.
+SmartSpend decides who should receive a discount by estimating each customer's incremental response to it, then lets a marketer plan a campaign in plain language through a grounded GenAI copilot.
 
 **The problem.** E-commerce and fintech companies spend heavily on coupons, cashback and promotions. Much of that money goes to customers who would have bought anyway ("sure things"), and some goes to customers a promo actively puts off ("sleeping dogs"). Standard response models, such as click or conversion prediction, cannot tell these groups apart from the customers a promo actually persuades.
 
-**The solution.** UpliftIQ has three layers:
+**The solution.** SmartSpend has three layers:
 
 1. **Causal engine.** Uplift models trained on real randomized experiments estimate the conditional average treatment effect (CATE) for each customer.
 2. **Decision layer.** A budget optimizer turns those estimates into a target list that maximizes incremental profit under a budget, and an A/B test designer plans the next experiment.
@@ -88,7 +88,7 @@ Six stages turn raw experiment data into a budget-constrained target list and a 
 2. **Model the uplift.** Train a naive response model (classifier on treated users only, the CTR-style baseline), then S-, T-, X- and DR-learners and a causal forest, all with LightGBM base learners where applicable.
 3. **Evaluate properly.** Use Qini curves, AUUC, uplift@k and CATE calibration by decile (predicted versus observed uplift per bucket), plus Brier score and calibration curves for the underlying outcome models. Repeat across seeds and splits to report stability, not a single lucky run.
 4. **Optimize the budget.** Given budget, contact cost and value per conversion, rank customers by expected incremental profit and target down the list until the budget runs out or marginal profit turns negative. Compare against targeting everyone, random targeting and response-score targeting.
-5. **Interpret the segments.** Fit a shallow policy tree on the CATE estimates (EconML's `SingleTreeCateInterpreter`) to produce readable rules, such as "recent buyers with web channel history". These rules are the grounded source for the copilot's segment explanations.
+5. **Interpret the segments.** Fit a shallow policy tree on the CATE estimates (EconML's `DRPolicyTree`; causalml's `SingleTreeCateInterpreter` was removed upstream in 0.18) to produce readable rules, such as "recent buyers with web channel history". These rules are the grounded source for the copilot's segment explanations.
 6. **Design the next test.** Use a power analysis to size a follow-up A/B test: the minimum detectable effect, sample size and duration for a given traffic level. This closes the loop from analysis to experimentation.
 
 The profit formula used throughout:
@@ -186,18 +186,18 @@ Brier score is a diagnostic, not the model-selection metric: a model can have a 
 | Correct declines | Policy-risk and out-of-scope cases handled correctly | 100% |
 | Latency and cost per brief | p50/p95 seconds, USD per brief | Reported, with and without the router |
 
-Most copilot checks are deterministic, not LLM-judged; only the causal-language check uses a judge. The router ablation reports whether the Decisions API improves latency, cost or decline accuracy enough to justify itself.
+Most copilot checks are deterministic: the causal-language check is a deny-list rubric, not an LLM judge (an optional judge is a Day-6 upgrade). The router ablation reports whether the Decisions API improves latency, cost or decline accuracy enough to justify itself.
 
 ## Tech stack and repo structure
 
-A Python backend and ML packages behind a FastAPI service, with a React frontend; the causal libraries are pinned because their dependency pins are old.
+A Python backend and ML packages behind a FastAPI service, with a React frontend; the causal libraries are pinned because their dependency pins are old. The ML core (Days 1–5: `packages/`, `pipelines/`, notebooks, evals, configs) is built and tested today; the FastAPI service, storage, frontend and observability tiers are the Day-6/7 app build.
 
 | Layer | Tools | Used for |
 | --- | --- | --- |
 | Data and metrics | `scikit-uplift` (sklift) | Loading Hillstrom; Qini, AUUC, uplift@k |
 | Causal models | `causalml`, `econml`, `lightgbm` | Meta-learners, DR-learner, causal forest, policy-tree interpreter |
 | Experimentation | `statsmodels` | Power analysis and sample sizing |
-| ML lifecycle | MLflow | Experiment tracking, model registry; the API loads only the registered champion |
+| ML lifecycle | `joblib` + JSON provenance sidecar; MLflow planned for the Day-7 infra build | Registry of the finalized champion (data checksum, split, seed, metrics); the API loads only the registered model |
 | GenAI | raw `requests` HTTP — Decisions API gate + OpenAI-compatible chat completions (Ollama, NEUROMETRIC), `pydantic`, `python-dotenv` | Routing, brief writing, typed contracts |
 | API | FastAPI, Pydantic v2, SQLAlchemy + Alembic | Versioned REST endpoints; copilot responses streamed over SSE |
 | Storage | PostgreSQL | Scenarios, briefs, target lists, and an audit log of every LLM call and tool output |
@@ -207,7 +207,7 @@ A Python backend and ML packages behind a FastAPI service, with a React frontend
 | Quality | `pytest`, `ruff`, `mypy`, Vitest | Backend and frontend tests; the copilot eval as a CI gate |
 
 ```
-upliftiq/
+smartspend/
 ├── apps/
 │   ├── api/                      # FastAPI service (serves models, never trains)
 │   │   ├── app/
@@ -224,8 +224,8 @@ upliftiq/
 │       │   ├── api/              # typed client generated from the OpenAPI spec
 │       │   └── hooks/
 │       └── tests/
-├── packages/                     # installable Python libraries
-│   ├── causal/                   # learners, metrics, calibration
+├── packages/                     # importable from the repo root (not installed)
+│   ├── causal/                   # learners, metrics, calibration, registry
 │   ├── decision/                 # optimizer, power analysis, policy-tree segments
 │   └── copilot/                  # router, planner, tools, writer, validator, providers
 ├── data/                         # git-ignored; rebuilt by pipelines/download.py
@@ -233,10 +233,10 @@ upliftiq/
 │   └── processed/                # cleaned, split Parquet files
 ├── pipelines/
 │   ├── download.py               # fetches the raw datasets and checksums them
-│   ├── train.py                  # trains, logs to MLflow, registers the champion
+│   ├── train.py                  # trains and registers the champion (joblib + sidecar)
 │   └── evaluate.py               # benchmark tables, calibration reports
-├── research/notebooks/           # hands-on analysis: EDA, models, decision layer
-├── evals/                        # copilot_cases.jsonl, runner, reports
+├── research/notebooks/           # hands-on analysis: EDA, models, decision layer, copilot
+├── evals/                        # seed_cases.yaml, runner, reports
 ├── configs/                      # model and business-assumption YAML
 ├── infra/
 │   ├── docker/                   # Dockerfiles for api and web
@@ -246,21 +246,21 @@ upliftiq/
 └── README.md
 ```
 
-Three boundaries keep it production-shaped. Notebooks are for research only; anything reused moves into `packages/`. Training runs as a pipeline that registers a model in MLflow, and the API only loads the registered version. The frontend uses a client generated from the API's OpenAPI spec, so backend schema changes surface as TypeScript errors instead of runtime bugs.
+Three boundaries keep it production-shaped. Notebooks are for research only; anything reused moves into `packages/`. Training runs as a pipeline that registers a model — a `joblib` artifact plus a provenance sidecar today, with MLflow as the Day-7 infra upgrade — and the API only loads the registered version. The frontend uses a client generated from the API's OpenAPI spec, so backend schema changes surface as TypeScript errors instead of runtime bugs.
 
 ## Seven-day build plan
 
 The causal engine is finished by day 4 so the copilot is built on stable tools, not moving ones.
 
-| Day | Focus | Done when |
-| --- | --- | --- |
-| 1 | Data, randomization checks, ATE, repo and README skeleton | SMD table and ATE with intervals |
-| 2 | Response baseline and S/T/X learners | Qini curves for all models on Hillstrom |
-| 3 | DR-learner, causal forest, calibration, stability runs | Benchmark table with mean and spread across seeds |
-| 4 | Budget optimizer, profit curves, policy-tree segments, power analysis | All five copilot tools callable and unit-tested |
-| 5 | Copilot: router, planner, writer, grounding validator | End-to-end brief for the four use cases |
-| 6 | Copilot eval set and ablation; React frontend and FastAPI service | Eval report with all copilot metrics |
-| 7 | README results, model card, demo video | Headline results table filled in |
+| Day | Focus | Done when | Status |
+| --- | --- | --- | --- |
+| 1 | Data, randomization checks, ATE, repo and README skeleton | SMD table and ATE with intervals | Done ✅ |
+| 2 | Response baseline and S/T/X learners | Qini curves for all models on Hillstrom | Done ✅ |
+| 3 | DR-learner, causal forest, calibration, stability runs | Benchmark table with mean and spread across seeds | Done ✅ |
+| 4 | Budget optimizer, profit curves, policy-tree segments, power analysis | All five copilot tools callable and unit-tested | Done ✅ |
+| 5 | Copilot: router, planner, writer, grounding validator | End-to-end brief for the four use cases | Done ✅ |
+| 6 | Copilot eval set and ablation; React frontend and FastAPI service | Eval report with all copilot metrics | Next |
+| 7 | README results, model card, demo video | Headline results table filled in | Not started |
 
 ## Getting started
 
@@ -273,8 +273,8 @@ from sklift.metrics import qini_auc_score, uplift_at_k
 from sklearn.model_selection import train_test_split
 from lightgbm import LGBMClassifier
 
-# binary arm: Mens E-Mail vs No E-Mail, target = visit
-df = fetch_hillstrom(target="visit", treated_arm="mens")
+# binary arm: Mens E-Mail vs No E-Mail; outcomes visit / conversion / spend
+df = fetch_hillstrom(arm="mens")
 X = df.drop(columns=["visit", "conversion", "spend", "segment", "treatment"])
 y, t = df["visit"], df["treatment"]
 
@@ -314,14 +314,6 @@ class CampaignScenario(BaseModel):          # packages/copilot/schemas.py
     assumptions_used: list[str] = []        # every default, shown in the brief
 ```
 
-**Day 1 checklist.**
-
-- [ ] Create a fresh environment and pin library versions.
-- [ ] Check randomization with standardized mean differences for both datasets; flag any SMD above 0.1.
-- [ ] Compute the ATE with a confidence interval for each outcome.
-- [ ] Write down the profit assumptions (value per conversion, cost per contact, currency) in the README.
-- [ ] Set up the repo structure and an empty headline results table.
-
 ## Risks, limitations and references
 
 The main limits are about what offline experiment data can prove; each is stated in the README rather than hidden.
@@ -332,7 +324,7 @@ The main limits are about what offline experiment data can prove; each is stated
 | Hillstrom spend is in USD | Reporting currency is USD only (decided Day 1); the validator fails any brief that mixes currencies |
 | Results are from past experiments, not live deployment | Frame impact as "estimated on held-out randomized data"; the test-design tool plans the live validation |
 | Decisions API is in public beta | Thin provider class; a deterministic keyword-router fallback keeps the copilot answering; router ablation measures its value |
-| LLM could state unsupported numbers or causal claims | Grounding validator blocks unsourced numbers; judge rubric flags causal overclaims |
+| LLM could state unsupported numbers or causal claims | Grounding validator blocks unsourced numbers; the causal-language deny-list flags causal overclaims |
 | Zip-code type can act as a proxy for protected attributes | Router policy check, plus a fairness note on how targeting rates differ by zip type |
 
 **References.**
@@ -340,4 +332,4 @@ The main limits are about what offline experiment data can prove; each is stated
 - [scikit-uplift documentation](https://www.uplift-modeling.com/): dataset loaders, metrics, and a guide to meta-learners.
 - [OpenAI Decisions API guide](https://developers.openai.com/api/docs/guides/decisions): question types, probabilities and limits.
 
-**Name options.** UpliftIQ (working name), CausalEdge, Incremental Profit Engine.
+**Name.** SmartSpend (working title UpliftIQ; other candidates were CausalEdge and Incremental Profit Engine).

@@ -1,10 +1,10 @@
-# UpliftIQ — Causal Promo Targeting with a GenAI Campaign Copilot
+# SmartSpend — Causal Promo Targeting with a GenAI Campaign Copilot
 
 Decide **who should get a discount** by estimating each customer's *incremental*
 response to it (CATE / uplift), then let a marketer plan a campaign in plain
 language through a grounded GenAI copilot.
 
-> Working name: **UpliftIQ** (alternatives: CausalEdge, Incremental Profit Engine).
+> Name: **SmartSpend** (working title: UpliftIQ; other candidates: CausalEdge, Incremental Profit Engine).
 > Repo directory: `SmartSpend`.
 
 ## The problem in one line

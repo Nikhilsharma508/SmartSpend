@@ -1,4 +1,4 @@
-# UpliftIQ — 7-Day Build Plan
+# SmartSpend — 7-Day Build Plan
 
 Primary dataset: Hillstrom (treatment = `segment`, rank on `visit`, value with `spend`)
 
@@ -24,10 +24,18 @@ Legend:
 - [x] [YOU] Randomization check: SMD per feature across the 3 arms; flag any SMD > 0.1
 - [x] [YOU] ATE per arm vs control for visit, conversion and spend, with 95% CIs
 - [x] [YOU] Choose the binary arm (Mens or Womens vs No E-Mail) based on the observed lift; write down why
-- [x] [YOU] Fix profit assumptions: margin % on spend, cost per email, currency handling (USD or a stated INR rate)
+- [x] [YOU] Fix profit assumptions: margin % on spend, cost per email, currency (USD only)
 
 Done when: notebook 01 has the SMD table, ATE table and a written assumptions block ✅
 *(Work lives across `00_hillstrom_eda.ipynb` + `01_hillstrom_randomization_ate.ipynb` — the deliberate EDA/causal split.)*
+
+**Day-1 checklist** *(relocated from `description.md`)*:
+
+- [x] Fresh environment with pinned versions (`uv` + `.python-version` on Python 3.11).
+- [x] Randomization checked with standardized mean differences for the Hillstrom arms; any SMD above 0.1 flagged.
+- [x] ATE with a confidence interval for each outcome (`visit`, `conversion`, `spend`; notebook 01).
+- [x] Profit assumptions written down (30% margin, $0.10/contact, USD only) in `configs/business_assumptions.yaml`, mirrored in the README.
+- [x] Repo structure set up with the headline results table scaffolded.
 
 ---
 

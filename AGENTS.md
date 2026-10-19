@@ -1,8 +1,8 @@
 # AGENTS.md
 
-UpliftIQ (working title) — uplift/CATE modelling, a budget optimizer, and a grounded
-GenAI campaign copilot. The installed distribution name is **`smartspend`**
-(`pyproject.toml`), but prose and docs call the project UpliftIQ. It is also not an
+SmartSpend (working title UpliftIQ) — uplift/CATE modelling, a budget optimizer, and a
+grounded GenAI campaign copilot. The installed distribution name is **`smartspend`**
+(`pyproject.toml`), which is also the name used in prose and docs. It is also not an
 importable package: `import smartspend` fails. Code lives in `packages/`.
 
 `plan.md` and `description.md` at the root are **planning inputs**, and both are partly
