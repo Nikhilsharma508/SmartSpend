@@ -13,6 +13,9 @@ treated against control within each score bucket, so a split that happens to
 leave one arm short of converters makes the Qini curve noisy for reasons that
 have nothing to do with the model. Stratifying on the joint ``treatment x visit``
 label keeps the treated:control converter ratio stable across all three splits.
+Callers paid on a rarer *money* outcome can fold that outcome in too
+(``stratify_extra``), and :func:`split_balance_report` makes the resulting
+balance visible instead of assumed.
 
 The validation split exists for one specific job: fitting recalibration and
 choosing thresholds *without* touching the test set (Day 3). The test split is
@@ -105,6 +108,7 @@ def make_splits(
     test_size: float = DEFAULT_TEST_SIZE,
     val_size: float = DEFAULT_VAL_SIZE,
     random_state: int = 42,
+    stratify_extra: pd.Series | np.ndarray | None = None,
 ) -> dict[str, tuple[pd.DataFrame, pd.Series, pd.Series]]:
     """Stratified train/val/test split on the ``treatment x outcome`` label.
 
@@ -117,6 +121,16 @@ def make_splits(
     val_size:
         Fraction of the *remaining* data held out for calibration and threshold
         choices. ``val_size=0`` returns only ``train`` and ``test``.
+    stratify_extra:
+        Optional second outcome column (aligned positionally with ``X``) to
+        fold into the stratification label, e.g. ``df["conversion"]`` when
+        ranking on ``visit``. Real campaigns are paid on the *money* outcome,
+        which is far rarer than the ranking target (1% converters vs 15%
+        visitors on Hillstrom) — balancing only the ranking outcome can still
+        leave folds with visibly different converter counts, and profit is
+        exactly the quantity that wobbles. With the extra column the label
+        becomes ``treatment x y x extra``. ``None`` (the default) preserves the
+        original protocol byte-for-byte, so the Day-3 ledger numbers reproduce.
 
     Returns
     -------
@@ -129,7 +143,8 @@ def make_splits(
     Stratifying on the joint label rather than on ``y`` alone matters: with a
     1-in-15 visit rate, an unstratified split can easily leave a test fold with
     a very different treated:control converter ratio, which moves the Qini
-    curve independent of model quality.
+    curve independent of model quality. Use
+    :func:`split_balance_report` to *see* that balance instead of assuming it.
     """
     if not 0 < test_size < 1:
         raise ValueError(f"test_size must be in (0, 1), got {test_size}")
@@ -155,6 +170,18 @@ def make_splits(
     strat = pd.Series(
         np.asarray(t).astype(str) + "_" + np.asarray(y_label).astype(str), index=X.index
     )
+    if stratify_extra is not None:
+        extra = np.asarray(stratify_extra)
+        if len(extra) != len(X):
+            raise ValueError(
+                f"stratify_extra has {len(extra)} rows, expected {len(X)} "
+                "(it must align positionally with X)"
+            )
+        # Positional join rather than index alignment: callers may pass a raw
+        # array; the label is built from values, not from index semantics.
+        strat = pd.Series(
+            strat.to_numpy().astype(str) + "_" + extra.astype(str), index=X.index
+        )
 
     X_temp, X_test, y_temp, y_test, t_temp, t_test, s_temp, _s_test = train_test_split(
         X, y, t, strat, test_size=test_size, random_state=random_state, stratify=strat
@@ -255,3 +282,51 @@ def encode_splits(
 
     feature_names = list(transformer.get_feature_names_out())
     return out, feature_names
+
+
+def split_balance_report(
+    splits: dict[str, tuple[pd.DataFrame, pd.Series, pd.Series]],
+) -> pd.DataFrame:
+    """Per-split visibility into the stratification: sizes, arms, events, SMD.
+
+    One row per split. ``ate`` is the treated-minus-control event-rate
+    difference (the unadjusted experimental effect in that fold) and ``smd`` is
+    its standardized version, ``(p_t - p_c) / sqrt((p_t(1-p_t) + p_c(1-p_c))/2)``.
+
+    Why this exists: a stratified split is a *claim* — "the arms and the events
+    are balanced across folds" — and claims should be checkable. If the SMD
+    moves a lot between sibling splits, the Qini and profit numbers will wobble
+    for reasons that have nothing to do with the model. Stable rows mean the
+    stratification is doing its job; pass ``stratify_extra`` to
+    :func:`make_splits` to also balance the money outcome on top of the
+    ranking target.
+    """
+    rows = []
+    # Canonical row order (train, val, test) for human readers; unknown split
+    # names — the tests use synthetic ones — keep alphabetical after those.
+    order: list[str] = [n for n in ("train", "val", "test") if n in splits]
+    order += sorted(set(splits) - set(order))
+    for name in order:
+        _X, y_i, t_i = splits[name]
+        t_arr = np.asarray(t_i, dtype=float)
+        y_arr = np.asarray(y_i, dtype=float)
+        treated = t_arr == 1
+        n_t, n_c = int(treated.sum()), int((~treated).sum())
+        p_t = float(y_arr[treated].mean()) if n_t else float("nan")
+        p_c = float(y_arr[~treated].mean()) if n_c else float("nan")
+        pooled = np.sqrt((p_t * (1 - p_t) + p_c * (1 - p_c)) / 2)
+        rows.append(
+            {
+                "n": int(len(y_arr)),
+                "treated_share": round(float(treated.mean()), 4),
+                "events_treated": int(y_arr[treated].sum()),
+                "events_control": int(y_arr[~treated].sum()),
+                "rate_treated": round(p_t, 4),
+                "rate_control": round(p_c, 4),
+                "ate": round(p_t - p_c, 4),
+                "smd": round((p_t - p_c) / pooled, 4) if pooled > 0 else float("nan"),
+            }
+        )
+    # The index must follow the same order the rows were built in, or labels
+    # silently misalign with data (caught by test_split_balance_report_shape_and_math).
+    return pd.DataFrame(rows, index=order)

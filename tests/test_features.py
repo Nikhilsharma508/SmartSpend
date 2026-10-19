@@ -114,3 +114,77 @@ def test_one_hot_design_expands_categoricals(hillstrom_binary):
     assert len(names) == len(FEATURES)
     assert not out.isna().any().any()
     assert np.isfinite(out.to_numpy(dtype=float)).all()
+
+
+def test_make_splits_default_matches_explicit_none(hillstrom_binary):
+    """``stratify_extra=None`` must be byte-for-byte the original protocol:
+    the Day-3 ledger numbers were measured on those exact splits."""
+    X, y, t = build_features(hillstrom_binary, target="visit")
+
+    base = make_splits(X, y, t, random_state=7)
+    explicit = make_splits(X, y, t, random_state=7, stratify_extra=None)
+
+    for name in base:
+        assert base[name][0].index.equals(explicit[name][0].index)
+
+
+def test_stratify_extra_balances_converter_counts(hillstrom_binary):
+    """Ranking on visit but getting paid on conversion means the *money*
+    outcome must survive the split: with ``stratify_extra=conversion`` the
+    converter share is identical (up to rounding) in every fold, in both arms."""
+    X, y, t = build_features(hillstrom_binary, target="visit")
+    conversion = hillstrom_binary["conversion"]
+    splits = make_splits(X, y, t, random_state=0, stratify_extra=conversion)
+
+    total_conv_t = int(conversion[t == 1].sum())
+    total_conv_c = int(conversion[t == 0].sum())
+    for name, frac in (("train", 0.64), ("val", 0.16), ("test", 0.20)):
+        _, y_i, t_i = splits[name]
+        # y_i here is visit; converters align by index through the split.
+        conv_i = conversion.loc[y_i.index]
+        for arm, total in ((1, total_conv_t), (0, total_conv_c)):
+            share_of_arm = conv_i[t_i == arm].sum() / total
+            assert share_of_arm == pytest.approx(frac, abs=0.01), (name, arm)
+
+
+def test_stratify_extra_rejects_misaligned_input(hillstrom_binary):
+    X, y, t = build_features(hillstrom_binary, target="visit")
+    with pytest.raises(ValueError, match="stratify_extra"):
+        make_splits(X, y, t, stratify_extra=np.zeros(len(X) - 1))
+
+
+def test_split_balance_report_shape_and_math(hillstrom_binary):
+    from packages.causal.features import split_balance_report
+
+    X, y, t = build_features(hillstrom_binary, target="visit")
+    splits = make_splits(X, y, t, random_state=0)
+    report = split_balance_report(splits)
+
+    assert list(report.index) == ["train", "val", "test"]
+    assert report["n"].sum() == len(X)
+    for name in ("train", "val", "test"):
+        _, y_i, t_i = splits[name]
+        y_arr, t_arr = np.asarray(y_i), np.asarray(t_i)
+        row = report.loc[name]
+        assert row["n"] == len(y_i)
+        assert row["events_treated"] == int(y_arr[t_arr == 1].sum())
+        assert row["events_control"] == int(y_arr[t_arr == 0].sum())
+        assert row["ate"] == pytest.approx(row["rate_treated"] - row["rate_control"], abs=1e-3)
+        assert np.isfinite(row["smd"])
+
+
+def test_split_balance_report_sees_extra_stratification(hillstrom_binary):
+    """With the money outcome folded into the label, each fold holds the same
+    converter share of each arm — the balance the report should surface."""
+    from packages.causal.features import split_balance_report
+
+    X, y, t = build_features(hillstrom_binary, target="visit")
+    splits = make_splits(
+        X, y, t, random_state=0, stratify_extra=hillstrom_binary["conversion"]
+    )
+    report = split_balance_report(splits)
+
+    for events_col in ("events_treated", "events_control"):
+        total = report[events_col].sum()
+        for name, frac in (("train", 0.64), ("val", 0.16), ("test", 0.20)):
+            assert report.loc[name, events_col] / total == pytest.approx(frac, abs=0.01)
