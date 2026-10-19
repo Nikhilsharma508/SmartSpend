@@ -15,13 +15,15 @@ from packages.causal.registry import load_model
 from packages.decision.schemas import AssumptionsSchema, ModelCard
 
 #: What the card says about group-level treatment: the Day-4 fairness audit
-#: measured targeting rate and holdout uplift by ``zip_code``; every group's
-#: uplift interval overlapped zero at this sample size.
+#: measured contact rate and holdout uplift by ``zip_code``; the contact
+#: disparity is real (flagged, not smoothed), the effect claim stays overall.
 FAIRNESS_NOTE = (
-    "Fairness audited on the holdout by zip_code (notebook 05, section 7): "
-    "targeting rates track each group's share of the list, and every group's "
-    "uplift interval includes zero at this sample size — so the model supports "
-    "no group-level causal claim, only an overall one."
+    "Fairness audited on the holdout by zip_code (notebook 05, section 7): the "
+    "policy tree would email Urban customers at 59% against their 41% "
+    "population share — a zip-proxy contact disparity, flagged here rather "
+    "than smoothed over. Group uplift intervals all exclude zero and overlap "
+    "each other: no group-level effect disparity is supported, but "
+    "group-level causal claims are not the model's to make either."
 )
 
 #: Where this model must not be used. Each line is a measured result, not a
