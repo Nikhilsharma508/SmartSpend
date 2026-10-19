@@ -7,7 +7,7 @@ Legend:
 - [AGENT] = vibe-code: setup, boilerplate, wrappers, UI, tests (review each diff)
 - `[x]` = done · `[~]` = in progress · `[ ]` = not started
 
-**Progress:** Days 1–4 ✅ · Day 5 in progress · Days 6–7 not started.
+**Progress:** Days 1–5 ✅ · Day 6 next · Day 7 not started.
 
 > **Figure convention.** Every plot a notebook produces is saved through
 > `packages/plotting.py::save_fig(fig, name)` into `docs/figures/<name>.png`
@@ -84,17 +84,17 @@ Done when: all 5 tools are callable from Python and the tests pass — ✅ (note
 
 ---
 
-## Day 5 — Campaign Copilot
+## Day 5 — Campaign Copilot ✅
 
-- [ ] [YOU] Design the router: exact Decisions API questions (intent choice, policy-risk predicate, missing-input predicate) and their thresholds
-- [ ] [YOU] Finalize the Scenario schema: required fields, documented defaults, assumption flags
-- [ ] [YOU] Write the brief writer prompt and the brief template (recommendation, targets, intervals, baseline, assumptions, risks)
-- [ ] [YOU] Define the validator rules: number-matching tolerance, unit conversions, required content, causal-language rubric
-- [ ] [YOU] Hand-write 15 seed eval cases (normal, ambiguous, out-of-scope, policy-risk)
-- [ ] [AGENT] Implement router.py, planner.py, writer.py, validator.py, providers.py (with a deterministic keyword-router fallback when the Decisions API is unreachable)
-- [ ] [AGENT] Number-extraction parser (USD: $, commas, k suffixes; %; per-contact costs; daily volumes)
+- [x] [YOU] Router — three named Decisions API questions on one call (intent choice, policy-risk noul, missing-inputs noul); thresholds calibrated live on the 15 seed cases (fast-path accuracy 0.533 → 1.00): risk ≥ 0.70 decline, confident out-of-scope ≥ 0.90 redirect, missing ≥ 0.60 clarify (beats an *uncertain* out-of-scope), confidence < 0.50 redirect; deterministic keyword fallback when the API is unreachable
+- [x] [YOU] Scenario schema — `CampaignScenario` + rule-based extraction: USD amounts (`$`, commas, `k` suffix), cost-vs-budget disambiguation, depth %, MDE pp, daily volume; documented defaults land in `assumptions_used`, absent money in `missing_fields`
+- [x] [YOU] Brief writer — prompt v2 (numbers verbatim from tools, never derived; causal-care wording; exact per-intent headers) + the deterministic template; pluggable providers: template / ollama `gpt-oss:120b-cloud` / NEUROMETRIC `goal-setter` (measured verdict: ollama passes V1–V4 at ~3.6 s, goal-setter fails V1+V3, template is the always-on floor)
+- [x] [YOU] Validator — V1 number-trace (1% tolerance, fraction↔percent, per-kind floors, LLM-typography normalization, citations with tool paths), V2 USD-only, V3 causal deny-list + interval phrasing, V4 section headings; one rewrite with the errors attached, then explicit `[UNVERIFIED]` flags; torture test 5/5 (each mutation caught by the owning rule)
+- [x] [YOU] 15 seed cases — `evals/seed_cases.yaml` + `evals/run_seed_eval.py`; live: fast-path 1.00, intent/tools 1.00, validator pass@1 0.44–0.78 → pass@2 0.50–1.00 (the rewrite closes the gap), p50 4.9 s / p95 9.5 s; gate-only fast paths 1.16–1.25 s, zero writer tokens
+- [x] [AGENT] `packages/copilot/` — router / planner / writer / validator / providers / trace + the `run_request` orchestrator; JSONL trace per stage under `traces/`; 64 copilot tests (175 repo-wide)
+- [x] [AGENT] Number extraction — USD/`%`/counts/signed decimals with the V1 citation paths; normalizes LLM typography (U+2010+ dashes used as minus, no-break digit grouping like `2 443`) — the main live first-draft failure mode, found and fixed by running the pipeline live
 
-Done when: an end-to-end brief is generated for all 4 use cases and passes the validator
+Done when: an end-to-end brief is generated for all 4 use cases and passes the validator — ✅ (notebook 06 §3: all four intents routed correctly, all drafts pass V1–V4; measured latencies and provider verdicts in `docs/concepts.md` §7 + Day-5 ledger)
 
 ---
 

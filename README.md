@@ -22,7 +22,7 @@ that change nothing. An uplift model ranks **persuadables** highest instead.
 
 ## Project status
 
-**Days 1–4 complete.**
+**Days 1–5 complete.**
 
 Day 1 — data, scaffold, environment, experiment validation.
 
@@ -62,7 +62,15 @@ Day 4 — decision layer: registry, profit curve, multi-treatment, policy tree, 
 - [x] Decision notebook — [`research/notebooks/05_hillstrom_decision_layer.ipynb`](research/notebooks/05_hillstrom_decision_layer.ipynb): profit curve (break-even 2%, peak 30% $858 with its CI), scenario table, multi-arm IPW, policy tree, zip_code fairness audit, power sizing
 - [x] Fairness audit — real contact disparity: Urban 59% vs 41% population share (zip-proxy split); group *effects* overlap cleanly; flagged in the model card, escalated to Day 6
 
-Days 5–7: see [`plan.md`](plan.md).
+Day 5 — campaign copilot: gate (Decisions API) → plan (Day-4 tools) → write (pluggable LLM) → validate (V1–V4).
+
+- [x] Copilot pipeline — [`packages/copilot/`](packages/copilot/): router (3 named questions on one API call, calibrated thresholds, keyword fallback), planner (rule-based scenario extraction, cached holdout context, per-intent tool dispatch), providers (Decisions client; template / ollama / neurometric writers), validator (number-trace with citations, USD-only, causal-language rubric, section contract), JSONL trace under `traces/`
+- [x] Config — [`configs/copilot.yaml`](configs/copilot.yaml): thresholds (incl. `t_oos_confidence`), 1% trace tolerance, writer pick, prompt v2
+- [x] Seed eval — [`evals/seed_cases.yaml`](evals/seed_cases.yaml) (15 labelled cases) + [`evals/run_seed_eval.py`](evals/run_seed_eval.py) (fast-path/intent/tool accuracy, pass@1/2, p50/p95)
+- [x] Copilot notebook — [`research/notebooks/06_hillstrom_copilot.ipynb`](research/notebooks/06_hillstrom_copilot.ipynb): live gate, 3-writer comparison on one brief, 4 use cases end-to-end, seed eval, validator torture (5/5 caught), fast-path timing, [`day6_copilot_latency.png`](docs/figures/day6_copilot_latency.png)
+- [x] Live calibration — fast-path 1.00, intent/tools 1.00 on the seed set; briefs ~8 s total (ollama ~3.6 s of it), fast paths ~1.2 s gate-only; first-draft validator pass 0.44–0.78 → ~0.5–1.0 after the one rewrite
+
+Days 6–7: see [`plan.md`](plan.md).
 
 ## Datasets
 
@@ -149,7 +157,7 @@ Full benchmark, noise floors and the champion reasoning in
 | uplift@30% (incremental visits/customer) | **0.0912** | 0.0911 |
 | Incremental conversions at 30% targeted | **23.6** (9.2 per 1,000 contacted) | 20.7 (8.1 per 1,000) |
 | Incremental profit per $10k spend | **$22,300** | $18,200 |
-| Copilot numeric faithfulness (% figures traced to tools) | — | — (Day 5–6) |
+| Copilot numeric faithfulness (briefs fully traced to tools, live) | 0.56 first draft → 0.67 after one rewrite (Day 5, 9 briefs) | — |
 
 *Profit per $10k spend = net profit per contact (10-seed mean, after contact
 cost) × 100,000 contacts; $10k buys 100k contacts at $0.10 each.*
@@ -170,6 +178,21 @@ contacted at 59% vs their 41% share (the tree splits on `zip_code_Urban`),
 while group effects overlap cleanly. And a +1pp lift test needs 15,510/arm
 (16 days at 2,000/day) — Day 3's wide intervals were a sample-size story all
 along. Full numbers in [`docs/concepts.md`](docs/concepts.md).
+
+**Day 5 (notebook 06):** the campaign copilot — gate → plan → write →
+validate. Live headline: the three-question Decisions gate routes all 15
+seed cases correctly (**fast-path accuracy 1.00**, ~1.2 s gate-only for
+decline/redirect/clarify with zero writer tokens); every use case produces a
+brief whose numbers trace to Day-4 tools (V1–V4, one rewrite, then explicit
+`[UNVERIFIED]` flags); and the validator torture test catches **5/5**
+hand-corrupted drafts, each by the owning rule. Writer verdict on the same
+brief: ollama `gpt-oss:120b-cloud` passes at ~3.6 s; `neurometric/goal-setter`
+fails number-trace + causal-language (prompt-shaped wrong — the provider
+abstraction made that finding a config flip); the deterministic template is
+the always-on floor. Seed-set latency p50 4.9 s / p95 9.5 s; first drafts pass
+the number-trace 0.44–0.78 of the time and the rewrite closes most of the
+rest — the validator, not the model, is what makes the brief trustworthy.
+Full numbers in [`docs/concepts.md`](docs/concepts.md).
 
 ## Repo structure
 

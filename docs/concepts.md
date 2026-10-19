@@ -389,6 +389,99 @@ from the artifact.
 
 ---
 
+## 7. Day-5 campaign copilot
+
+The copilot (`packages/copilot/`) answers four marketer jobs — `plan`, `what_if`,
+`explain`, `test_design` — as *briefs*: markdown prose whose every number traces
+back to a Day-4 tool. Design rule: **tools compute, the writer narrates, the
+validator decides** — the generative model never supplies a fact.
+
+### The gate (router)
+
+Three named questions ride **one** Decisions API call (fast paths stay fast):
+
+| Question | Type | Answers |
+| --- | --- | --- |
+| `intent` | choice | plan / what_if / explain / test_design / out_of_scope + confidence |
+| `policy_risk` | noul | targeting or excluding by a sensitive attribute or a proxy (0–1) |
+| `missing_inputs` | noul | is the request so empty that only a clarifying question helps? (0–1) |
+
+Thresholds (`configs/copilot.yaml`, calibrated on the 15 seed cases) decide the
+path **in order** — decline ≥ confident redirect ≥ clarify ≥ cautious redirect ≥
+brief:
+
+| Threshold | Value | Fires |
+| --- | --- | --- |
+| `t_policy_risk` | 0.70 | decline — the fixed refusal text; no tools, no writer |
+| `t_oos_confidence` | 0.90 | redirect — confidently `out_of_scope`, checked before clarify |
+| `t_missing` | 0.60 | clarify — one named question; beats an *uncertain* out-of-scope redirect |
+| `t_confidence` | 0.50 | redirect — never guess on a low-confidence choice |
+
+Fast paths are deterministic templates: measured ~1.2 s (the gate call is the
+only latency) and zero writer tokens. The missing-inputs criteria account for
+the copilot's standard defaults (contact cost, margin, depth, MDE, daily
+volume, a presented profit curve), so a concrete but budget-less request gets a
+brief with flagged assumptions instead of a question back. When the API is
+unreachable or refuses a question, a deterministic keyword router answers —
+its reduced accuracy is a documented offline floor, recorded per case.
+
+### Scenario extraction (the planner)
+
+Rule-based parsing, never the LLM: USD amounts (`$`, commas, `k` suffix),
+cost-vs-budget disambiguation near cost words, depth percentages, MDE in
+percentage points, daily volume. Every filled default lands in
+`assumptions_used`; every unstated money field in `missing_fields`. The planner
+dispatches the intent to the Day-4 tools over a **cached holdout context**
+(champion + split rebuilt once per process; the policy tree fitted lazily on
+first use). What-if deltas are computed in code, not prose.
+
+### Writers
+
+Pluggable behind one `write(request) -> DraftResult` interface:
+
+- **template** — deterministic render per intent; the always-on floor,
+  no LLM.
+- **ollama** — `gpt-oss:120b-cloud` over the local OpenAI-compatible endpoint
+  (`/v1/chat/completions`, no key); the configured default.
+- **neurometric** — `goal-setter` on the NEUROMETRIC gateway, Bearer auth.
+
+The prompt contract (version-stamped in the config): every number VERBATIM
+from the tool data and never *derived* (no count→share conversions, no
+relative-CI arithmetic), causal-care wording, USD only, exact section headers.
+
+### Validation (V1–V4)
+
+Deterministic code — tolerance from `configs/copilot.yaml`:
+
+| Rule | Checks |
+| --- | --- |
+| V1 number-trace | every `$`, `%`/`pp`, unit-tagged count and signed decimal matches a flattened tool/scenario/constant number within 1% relative (+ per-kind floors); fraction ↔ percent forms of the *same* number match; typography is normalized first (LLM drafts use U+2010+ dashes as minus and no-break digit grouping like `2 443`); each match becomes a `Citation` with its tool path |
+| V2 units | USD only — ₹/INR/€/£/"lakh"/"crore" fail the brief |
+| V3 causal language | deny-list ("will buy", "guaranteed", "because they are", …) + interval phrasing required when a tool output carries an interval |
+| V4 sections | every header for the intent must appear as a markdown heading at line start |
+
+A failing draft gets **one rewrite** with the error list attached; if the final
+draft still fails, the prose ships with explicit `[UNVERIFIED: rule — detail]`
+flags and `degraded=True` — the reader sees exactly what could not be verified.
+
+### Seed eval and torture
+
+`evals/seed_cases.yaml` (15 labelled cases) + `evals/run_seed_eval.py` score
+fast-path accuracy (all cases), intent and tool-call correctness (brief cases),
+validator pass@1 (first writer draft) / pass@2 (final draft after the rewrite,
+briefs only), and p50/p95 latency. Notebook 06 adds a **validator torture
+test**: five hand-corrupted drafts (invented `$`, a rupee amount, a causal
+overclaim, a deleted section, a misquoted depth) — each must be caught by the
+owning rule.
+
+### Trace
+
+Every request appends one JSONL row per stage (gate / plan / write / validate /
+package) to gitignored `traces/` — the same schema the Day-6 eval runner reads,
+so there is no second telemetry system.
+
+---
+
 ## Findings ledger
 
 Accumulated results. Every number here should be reproducible from a notebook or
@@ -649,6 +742,43 @@ fairness note that names the zip-proxy contact disparity.
 | Every holdout-graded segment clears zero — the tree under-targets | Policy-tree labels rank relative effect at capped depth; at $34.91 vs $0.10, email-everything is the profit verdict. Trees are effect maps, not profit oracles. |
 | The fairness audit found a real proxy-attribute risk | Urban contacted at 59% vs 41% share via a `zip_code_Urban` split; group effects overlap cleanly. Flagged in the card, escalated to Day 6's adversarial eval. |
 | Day 3's uncertainty was always a sample-size story | +1pp on a 10.6% visit rate needs 15,510/arm ≈ Hillstrom's whole list; repetition (10 seeds) was the affordable substitute, experiments are the real answer. |
+
+### Hillstrom — Day 5 (campaign copilot)
+
+Live numbers (Decisions API + ollama `gpt-oss:120b-cloud` + NEUROMETRIC
+gateway) from notebook 06 and the calibration runs; definitions in section 7.
+Context = the Day-4 champion's split (n = 8,523). Fast-path and pass@ ranges
+are spread across repeated live runs on the same day.
+
+| Quantity | Value |
+| --- | --- |
+| Gate latency (one call, three named questions) | 1.22 s (1.2–1.8 s across runs); 578 in / 3 out tokens |
+| Fast-path latency (decline / redirect / clarify) | 1.16–1.25 s, gate-only, 0 writer tokens — the "<1 s" claim measured honestly |
+| Context boot (champion + split rebuild, once per process) | 0.40 s |
+| First `explain` request | ~30 s total: one-time policy-tree fit (25.1 s), cached afterwards |
+| Day-4 plan tools (5 runs) | 0.02–0.03 s |
+| Writer latency, same brief | template <0.01 s / 166 words · ollama 3.56 s, 2,804 in / 1,015 out tokens / 268 words · neurometric 20.88 s / 850 words |
+| Validator V1–V4 | <0.01 s per draft |
+| Brief total (gate + plan + write + validate) | 6.4–10.0 s typical; median 8.26 s in the figure |
+| Seed eval — fast-path accuracy (15 live cases) | **1.00** (0.93–1.00 across three runs) |
+| Seed eval — intent accuracy / tool-call correctness (9 briefs) | **1.00 / 1.00** |
+| Seed eval — validator pass@1 / pass@2 (9 briefs, live ollama) | 0.556 / 0.667 in notebook 06 (ranges 0.44–0.78 / 0.50–1.00) — the rewrite-retry is what closes first-draft gaps |
+| Seed eval — latency | p50 4.93 s, p95 9.45 s |
+| Torture test (5 hand-corrupted drafts) | 5/5 caught, each by the owning rule |
+| Provider verdict | ollama is the default writer (passes V1–V4 at ~3.6 s); `neurometric/goal-setter` fails V1+V3 on the same brief (derived numbers, causal overclaims, 850 words) — the gateway needs a general-purpose model; the template is the always-on floor |
+| Copilot tests | 64 (175 repo-wide) |
+
+Day-5 finding table:
+
+| Finding | Evidence |
+| --- | --- |
+| The gate routes the labelled taxonomy perfectly — once calibrated | Fast-path 1.00 on all three live runs *after* the questions were reworded: the first draft over-fired `missing_inputs` on 6 of 9 brief cases (0.533 accuracy) because the criteria ignored the copilot's documented defaults |
+| One API call, three questions, ~1.2 s | The whole fast-path budget is the gate call; redirect/decline/clarify spend zero writer tokens |
+| The validator is the safety lever, and it earns it | 5/5 torture mutations caught by the owning rule; live first drafts fail V1 often enough (0.44–0.78 pass@1) that the rewrite loop is load-bearing, not decoration |
+| LLM drafts fail V1 for *typography*, not lies | "2 443 contacts" (U+202F) and "‑$155.64" (U+2011 hyphen) cite real tool numbers; normalizing before extraction fixed most live first-draft failures |
+| Deriving numbers is the remaining failure mode | gpt-oss converts counts to shares and intervals to relative percentages; prompt v2 forbids it, and the rewrite with the error list usually lands it |
+| Writer verdicts, measured not assumed | ollama ~3.6 s, passes V1–V4; `goal-setter` produced an 850-word brief that fails V1 and V3 on the same data — provider abstraction proved its worth by making the swap a config flip |
+| The template floor is not a toy | It passes the full V1–V4 battery in <0.01 s — every degraded path in the system lands on a validator-passing brief |
 
 ### Profit formula
 
