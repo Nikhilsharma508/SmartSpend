@@ -18,6 +18,15 @@ The incremental conversions at depth k are estimated the same way the Qini curve
 does it: among the top-k targeted, the treated-minus-control outcome difference
 scaled to the number targeted.
 
+**Profit is valued on the money outcome, not the ranking outcome.** A model
+trained to rank by ``visit`` is still paid out in ``conversion`` dollars: ranking
+visits and counting them as $34.91 each would overstate profit by an order of
+magnitude (Day 1 measured visits at ~11x the conversion rate). ``make_fold`` can
+therefore return a 7th array — the money outcome on the test rows, aligned by
+construction since it comes from the same splitter. When it is omitted, profit
+falls back to the ranking outcome, which is only correct when that outcome *is*
+the money (e.g. ranking and paying on ``spend`` itself).
+
 Notebook 04 drives this over the real Hillstrom data; the tests here use a small
 synthetic set so the suite stays fast.
 """
@@ -97,9 +106,11 @@ def profit_at_k(
     """Net profit from targeting the top-``k`` fraction, in USD.
 
     Uses the conversion route: incremental conversions times value per
-    conversion, minus the contact cost for everyone targeted. Returns USD for
-    the whole targeted segment (not per customer) — divide by ``k * n`` for a
-    per-contact figure.
+    conversion, minus the contact cost for everyone targeted. ``y`` must be the
+    **money outcome** (conversions or spend) — not the ranking proxy — because
+    the value-per-conversion constant only pays out actual conversions. Returns
+    USD for the whole targeted segment (not per customer); divide by ``k * n``
+    for a per-contact figure.
     """
     n_k = max(int(round(k * len(y))), 1)
     incr = incremental_conversions_at_k(y, uplift_score, treatment, k)
@@ -172,9 +183,15 @@ def run_benchmark(
     ----------
     make_fold:
         Callable ``make_fold(seed) -> (X_train, t_train, y_train, X_test,
-        t_test, y_test)``. Keeping the split logic outside this function means
-        the benchmark can be run on any dataset (Hillstrom now, a synthetic set
-        in tests) without this module knowing about either.
+        t_test, y_test)`` or ``... , y_money_test)``. Keeping the split logic
+        outside this function means the benchmark can run on any dataset
+        (Hillstrom now, a synthetic set in tests) without this module knowing
+        about either. When the 7th array is given it is the **money outcome on
+        the test rows** (``conversion`` when ranking on ``visit``): Qini and
+        uplift are measured on ``y_test``, profit on ``y_money_test``, so a
+        model can rank visits but be paid in conversion dollars. Without it,
+        profit uses ``y_test`` — correct only when that outcome is itself
+        money.
     target:
         Outcome being modelled; passed to the learner factory so ``spend``
         switches base learners to regressors.
@@ -192,7 +209,11 @@ def run_benchmark(
     rows: list[dict] = []
 
     for seed in seeds:
-        X_tr, t_tr, y_tr, X_te, t_te, y_te = make_fold(seed)
+        fold = make_fold(seed)
+        X_tr, t_tr, y_tr, X_te, t_te, y_te = fold[:6]
+        # Money outcome for profit: separate from the ranking outcome when the
+        # fold provides one; otherwise the ranking outcome is the money.
+        y_money_te = fold[6] if len(fold) == 7 else y_te
         for name in learners:
             model = make_learner(name, target=target, random_state=seed)
             model.fit(X_tr, t_tr, y_tr)
@@ -203,7 +224,9 @@ def run_benchmark(
                     "model": name,
                     "qini_auc": qini_auc(y_te, score, t_te),
                     "uplift_at_k": uplift_at_k(y_te, score, t_te, k=k),
-                    "profit_at_k": profit_at_k(y_te, score, t_te, k, assumptions),
+                    "profit_at_k": profit_at_k(
+                        y_money_te, score, t_te, k, assumptions
+                    ),
                 }
             )
 

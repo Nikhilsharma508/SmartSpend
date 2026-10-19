@@ -145,7 +145,9 @@ class _CausalmlModel:
         self._is_classifier = not continuous
 
     def fit(self, X, t, y) -> None:
-        self._model.fit(X, t, y)
+        # Keyword args keep this correct across causalml versions: v1.0 swaps
+        # the *positional* order of treatment and y, but the names stay fixed.
+        self._model.fit(X, treatment=t, y=y)
 
     def predict(self, X) -> np.ndarray:
         out = self._model.predict(X)

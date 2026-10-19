@@ -134,6 +134,35 @@ def test_run_benchmark_returns_raw_and_summary():
     )
 
 
+def test_run_benchmark_values_profit_on_the_money_outcome():
+    """Profit must come from the money array, not the ranking outcome.
+
+    The fold ranks on a *noise* test outcome (so the ranking metrics see no
+    effect) but pays out on a real conversion vector. Valuing the noise would
+    land profit near the contact cost; valuing the money outcome returns the
+    true incremental profit.
+    """
+
+    def make_fold(seed: int):
+        rng = np.random.default_rng(seed)
+        n = 800
+        X = rng.normal(size=(n, 3)).astype(float)
+        t = rng.binomial(1, 0.5, size=n).astype(float)
+        y_tr = t * (X[:, 0] > 0)  # learnable effect on train
+        y_rank_test = rng.binomial(1, 0.1, size=n).astype(float)  # noise
+        y_money_test = t * (X[:, 0] > 0)  # real conversions on test
+        return X, t, y_tr, X, t, y_rank_test, y_money_test
+
+    result = run_benchmark(
+        make_fold, learners=("response",), seeds=(0,), assumptions=_assumptions()
+    )
+    profit = result.raw["profit_at_k"].iloc[0]
+    # Valued on conversions: the ranking recovers X[:, 0] > 0, so incremental
+    # conversions are large and profit clears $1k. Valuing the noise outcome
+    # would stay near zero (a few spurious conversions minus the contact cost).
+    assert profit > 1000
+
+
 def test_run_benchmark_is_reproducible():
     kwargs = dict(learners=("s",), seeds=(0, 1), assumptions=_assumptions())
     a = run_benchmark(_synthetic_fold, **kwargs)
