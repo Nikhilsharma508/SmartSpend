@@ -1,10 +1,17 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanup, render, screen } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ThemeProvider } from "next-themes"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import App from "@/App"
+import { fixtures } from "@/api/mock/fixtures"
+
+globalThis.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => fixtures,
+  }) as unknown as typeof fetch
+
 
 class ResizeObserverStub {
   observe() {}

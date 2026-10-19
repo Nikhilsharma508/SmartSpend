@@ -7,7 +7,7 @@ import { fixtures } from "@/api/mock/fixtures"
  * same aggregate under /api/fixtures (see apps/api scaffolding note in
  * AGENTS.md), so no page code changes.
  */
-export const USE_MOCK = true
+export const USE_MOCK = false
 
 export async function fetchFixtures(): Promise<Fixtures> {
   if (USE_MOCK) return fixtures
