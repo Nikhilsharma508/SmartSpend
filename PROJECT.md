@@ -197,13 +197,13 @@ A Python backend and ML packages behind a FastAPI service, with a React frontend
 | Data and metrics | `scikit-uplift` (sklift) | Loading Hillstrom; Qini, AUUC, uplift@k |
 | Causal models | `causalml`, `econml`, `lightgbm` | Meta-learners, DR-learner, causal forest, policy-tree interpreter |
 | Experimentation | `statsmodels` | Power analysis and sample sizing |
-| ML lifecycle | `joblib` + JSON provenance sidecar; MLflow planned for the Day-7 infra build | Registry of the finalized champion (data checksum, split, seed, metrics); the API loads only the registered model |
+| ML lifecycle | `joblib` + JSON provenance sidecar; MLflow with a local SQLite backend logging alongside | Registry of the finalized champion (data checksum, split, seed, metrics); the API loads only the registered model |
 | GenAI | raw `requests` HTTP — Decisions API gate + OpenAI-compatible chat completions (Ollama, NEUROMETRIC), `pydantic`, `python-dotenv` | Routing, brief writing, typed contracts |
 | API | FastAPI, Pydantic v2, SQLAlchemy + Alembic | Versioned REST endpoints; copilot responses streamed over SSE |
-| Storage | PostgreSQL | Scenarios, briefs, target lists, and an audit log of every LLM call and tool output |
-| Frontend | React + TypeScript (Vite), TanStack Query, Recharts, Tailwind | Campaign planner, profit and Qini charts, segment explorer, copilot chat |
-| Observability | Structured logging, Langfuse (or OpenTelemetry) | Traces of copilot requests: latency, cost, tool calls, validator failures |
-| Infra and CI | Docker Compose, GitHub Actions | One-command local stack; lint, type checks, tests and an eval smoke run on every push |
+| Storage | SQLite via SQLAlchemy + Alembic (`data/app/`); PostgreSQL documented as the production option | Scenarios, briefs, target lists, and an audit log of every LLM call and tool output |
+| Frontend | React + TypeScript (Vite), Motion, Tailwind, shadcn + Kokonut/Bklit registry components | Campaign planner, profit and uplift charts, copilot playback chat |
+| Observability | JSONL request traces (`traces/`), MLflow local tracking | Traces of copilot requests: latency, cost, tool calls, validator failures |
+| Infra and CI | `scripts/start_app.sh` (`npm run start`), GitHub Actions | One-command local stack without containers; lint, type checks, tests and an eval smoke run on every push |
 | Quality | `pytest`, `ruff`, `mypy`, Vitest | Backend and frontend tests; the copilot eval as a CI gate |
 
 ```
@@ -238,15 +238,14 @@ smartspend/
 ├── research/notebooks/           # hands-on analysis: EDA, models, decision layer, copilot
 ├── evals/                        # seed_cases.yaml, runner, reports
 ├── configs/                      # model and business-assumption YAML
-├── infra/
-│   ├── docker/                   # Dockerfiles for api and web
-│   └── docker-compose.yml        # web, api, postgres, mlflow
+├── scripts/
+│   └── start_app.sh              # one-command local stack — web + api, no containers
 ├── .github/workflows/ci.yml      # lint, type-check, tests, eval smoke run
 ├── docs/                         # model card, architecture decision records
 └── README.md
 ```
 
-Three boundaries keep it production-shaped. Notebooks are for research only; anything reused moves into `packages/`. Training runs as a pipeline that registers a model — a `joblib` artifact plus a provenance sidecar today, with MLflow as the Day-7 infra upgrade — and the API only loads the registered version. The frontend uses a client generated from the API's OpenAPI spec, so backend schema changes surface as TypeScript errors instead of runtime bugs.
+Three boundaries keep it production-shaped. Notebooks are for research only; anything reused moves into `packages/`. Training runs as a pipeline that registers a model — a `joblib` artifact plus a provenance sidecar, with MLflow (local SQLite tracking) logging the same champion artifacts, metrics and decision runs alongside — and the API only loads the registered version. The frontend uses a client generated from the API's OpenAPI spec, so backend schema changes surface as TypeScript errors instead of runtime bugs.
 
 ## Seven-day build plan
 

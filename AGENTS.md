@@ -86,10 +86,11 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   packages.*` only resolves when the CWD is the repo root (pytest sets `pythonpath`, the
   notebook bootstraps `sys.path`). Running a script from elsewhere fails with
   `ModuleNotFoundError: No module named 'packages'`.
-- **Most of the skeleton is empty stubs.** Real code exists only in `packages/datasets/`,
-  `packages/causal/diagnostics.py`, `packages/plotting.py`, `pipelines/download.py`, and
-  `tests/`. `packages/causal/` (rest), `packages/decision/`, `packages/copilot/`, `apps/`,
-  `infra/`, `evals/` are placeholders. Do not assume planned modules exist.
+- **Most of the skeleton is real now.** Real code: `packages/datasets/`,
+  `packages/causal/diagnostics.py`, `packages/decision/`, `packages/copilot/`,
+  `packages/plotting.py`, `pipelines/download.py`, `tests/`, `evals/`, and
+  `apps/web` (Day-6 frontend, offline playback). `packages/causal/` (rest) and
+  `apps/api/` are placeholders. Do not assume planned modules exist.
 - `data/raw/` and `data/processed/` are git-ignored (`.gitkeep` only); the raw CSV is
   fetched and checksum-verified by `pipelines/download.py`.
 
@@ -103,6 +104,16 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   conversion $34.91) — see `configs/business_assumptions.yaml`; change only with a
   recorded reason.
 - Scikit-uplift's PyPI name is `scikit-uplift`; the import name is `sklift`.
+- **No containers in this build.** Docker/Compose are dropped (personal project);
+  the one-command local stack is `npm run start` (`scripts/start_app.sh`).
+- **App storage is SQLite** (`data/app/`, git-ignored) through SQLAlchemy +
+  Alembic — chosen over the documented PostgreSQL to keep the local run
+  sign-in-free, with the Postgres swap remaining a one-URL change (PostgreSQL 18
+  is the documented production option). No auth on local services.
+- **MLflow tracks locally** (SQLite backend + `mlruns/` artifacts) and logs every
+  run kind: model training/evals and each deterministic decision-tool call
+  (`optimize_budget`, `compare_scenarios`, `design_ab_test`). The joblib +
+  provenance sidecar remains the load-path code of record.
 
 ## Conventions
 
