@@ -287,6 +287,108 @@ flat or inflated only supports ordering, not dollar figures.
 
 ---
 
+## 6. Day-4 decision layer
+
+### Champion registry
+
+Where the *finalized* model stops being a variable and becomes an artifact:
+`pipelines/train.py` fits the chosen learner under the exact Day-3 benchmark
+protocol (seeded 64/16/20 stratified split, one-hot encoded on train, fit on
+train only, evaluated once on the untouched test) and writes
+`models/<name>.joblib` plus a `<name>.meta.json` **provenance sidecar** —
+learner, seed, fit scope, data SHA-256, holdout metrics, business assumptions,
+package versions, git commit. `packages/causal/registry.py` validates the
+sidecar on both save and load: a model whose provenance cannot be checked is
+not served. `models/` is git-ignored; artifacts are regenerable. The Day-6 API
+loads a registered model and never trains.
+
+### Profit curve and targeting depth
+
+The champion's ranking turned into money, depth by depth: for each targeting
+depth *k*, price the top-*k* cut with the profit formula (valued on the money
+outcome) and plot the result — the **profit curve**. Two points get names:
+the **break-even depth** (first depth whose point-estimate profit clears
+zero) and the **recommended depth** (the curve's argmax). Each depth carries a
+95% interval from the treated-control difference within the targeted set,
+scaled to *n_targeted*; on Hillstrom these intervals are wide enough that the
+curve supports "no depth is obviously underwater" but not "depth X is
+optimal" — the second claim belongs to an experiment, not a split.
+
+### Policy value and IPW (inverse-propensity weighting)
+
+What a *policy* earns on untouched data, without pretending the experiment
+ran the policy. Under uniform randomization over *A* arms, each customer's
+arm has propensity 1/*A*, so the policy's value is the mean of
+*A·y·1{actual arm = policy arm}* over holdout rows — customers whose
+randomized arm happens to match the policy, upweighted to undo the
+randomization. The incremental-vs-no-email estimate uses the paired per-row
+contribution *A·y·(1{match policy} − 1{match control})*, whose sample SE is
+reported. IPW buys honesty with variance (upweighting by ~*A*), which is why
+"which email, if any?" comes back with wide intervals — that width is the
+truth, not a bug.
+
+### Policy tree (DRPolicyTree)
+
+A shallow, honest decision tree trained to pick *treatments*, not to predict
+outcomes: econml's `DRPolicyTree` splits for treatment heterogeneity via a
+doubly-robust objective, and at depth ≤ 3 every leaf renders as a sentence a
+marketer can argue with ("recency > 6 and history <= 500 → email"). The tree
+only *proposes*: each segment is re-measured on the untouched holdout as
+treated-minus-control within the leaf, with a 95% interval. A segment whose
+interval straddles zero is unsupported by data regardless of what the tree's
+leaf value claimed. (causalml's `SingleTreeCateInterpreter` from the original
+plan was removed upstream in causalml 0.18; `DRPolicyTree` is its EconML
+successor.)
+
+### Split balance report (SMD)
+
+A stratified split is a *claim* — arms and events balance across folds — and
+the claim should be checkable. `split_balance_report` prints, per fold: size,
+treated share, per-arm event counts and rates, the unadjusted ATE, and its
+**standardized mean difference (SMD)**,
+*(p_t − p_c)/√((p_t(1−p_t)+p_c(1−p_c))/2)*. Stable SMD across sibling folds
+means the stratification is doing its job; drifting SMD means Qini and profit
+will wobble for reasons unrelated to the model. `make_splits(stratify_extra=…)`
+folds a second outcome (e.g. the rarer money outcome) into the label so the
+quantity that gets *paid* is balanced too.
+
+### Fairness audit
+
+The same policy, sliced by a protected-ish attribute (`zip_code`): each
+group's **contact rate** (share the policy would email) against its
+**population share**, plus the group's own holdout uplift with an interval.
+Two failure modes it surfaces: *disparate contact* (a group targeted far
+above its population share without supporting evidence) and *unsupported
+contact* (targeting a group whose uplift interval includes zero). Measured on
+Hillstrom (notebook 05): the policy tree emails Urban at 59% against its 41%
+share — a real *disparate-contact* finding driven by a `zip_code` split —
+while every group's uplift interval excludes zero and overlaps its siblings,
+so no *effect* disparity is supported. The model card carries both facts: the
+contact disparity as a flag, the effect claim as overall-only.
+
+### MDE, power, and experiment sizing
+
+The **minimum detectable effect (MDE)** is the lift the business actually
+cares about; **power** (usually 0.8) is the chance of detecting it at
+significance α. `design_ab_test` converts the pair into a two-proportion
+sample size (customers per arm) and, against the daily eligible pool, a
+duration. It exists because every interval on Day 3 was wide for a
+sample-size reason before it was a model reason: sizing the next test by the
+business's interesting lift — not by what this dataset can barely see — is
+the difference between an experiment and a hope.
+
+### Model card
+
+The registered model's ID plus its *decided boundaries*: provenance (data,
+protocol, seed, versions), holdout metrics, the business assumptions those
+metrics were priced under, a fairness note, and explicit **when-not-to-use**
+lines — each one a measured result, not a generic disclaimer (spend targeting
+inside its noise floor; champion-vs-DR a statistical tie; no group-level
+causal claim). `get_model_card` reads the registry, so the card cannot drift
+from the artifact.
+
+---
+
 ## Findings ledger
 
 Accumulated results. Every number here should be reproducible from a notebook or
@@ -445,6 +547,108 @@ Findings (notebook 04):
 | Forest intervals are wide but directional | Mean CI width 0.176 ≈ 2.3× the ATE; 42% of customers get intervals excluding zero and 97.6% of point estimates are positive — the forest says "who", not "how much", confidently. |
 | Spend ordering does not survive its own floor | A random ranking on spend spans −0.89 → 4.18 at 10% across seeds (std 1.01); the forest's 1.87 sits inside that band. `visit`'s floor is ~45× tighter — which is why the benchmark runs on `visit`. Any Day-4 spend claim must carry this uncertainty. |
 | Profit must be valued on the money outcome | The benchmark passes `conversion` as a 7th fold array; valuing the ranking outcome (`visit`) instead would have reported ≈ $7,900 rather than $569 on the same run — a ~14× overstatement. See the profit-formula note below. |
+
+### Hillstrom — Day 4 (decision layer)
+
+Numbers from notebook 05; definitions in section 6. Holdout = the champion's
+seed-42 test split (n = 8,523, 81 converters) unless noted.
+
+**Registered champion** (`models/champion.joblib`, via `pipelines/train.py`;
+git-ignored, regenerable). Fit: response baseline, target `visit`, seed 42,
+train-only. At k = 30% (2,557 targeted): Qini 0.0199, uplift@30% 0.0899,
+incremental conversions 31.89 ± 10.49, profit **$857.60** ($0.3354/contact vs
+uniform reference $435.35 = $0.170/contact). Qini/uplift reproduce notebook
+04's single-split row exactly — the artifact traces to the ledger; the honest
+performance envelope remains the 10-seed benchmark ($569 ± 239).
+
+**Stratification visibility** (`split_balance_report`): SMD
+0.2191/0.2191/0.2195 across train/val/test; converter shares per arm
+0.64/0.16/0.20 exactly. `stratify_extra=conversion` is a **no-op on
+Hillstrom** — conversion is nested inside visit (no converter-without-visitor
+cells exist), so `treatment × visit` already balances converters in exact
+proportion. The option matters only when the money outcome is *not* nested in
+the ranking target (e.g. ranking on open-rate, paid on spend); here the
+report's job is to *verify* the default, not fix it.
+
+**Profit curve** (champion): point breaks even at depth 2%; peaks at the
+ledger's 30% with $857.60 (CI [140, 1,576]) — reproducing the registry metric
+to the cent. The 95% CI clears zero only at depths 4–8%, 14% and 24–32%, and
+includes zero at 16 of 25 grid points; neighbouring depths wobble (8% dipping
+at 10%) = single-split noise. Verdict: no depth is obviously underwater; no
+optimal-depth claim is supportable from one split.
+
+**Scenario comparison** at the 30% budget ($255.70):
+
+| Strategy | incr. conversions | profit (95% CI) |
+| --- | --- | --- |
+| Champion ranking | 31.89 | $858 [140, 1,576] |
+| Random targeting (null) | 19.80 | $435 [68, 803] |
+| Target all | 65.98 | $1,451 [226, 2,676] — *infeasible at this budget* |
+| No targeting | 0 | $0 |
+
+Champion leads the null on the mean but the intervals overlap (the Day-3 tie,
+in dollars). Target-all is **not** a losing strategy — it needs 3.3× the
+budget and earns $0.17/contact vs the champion's $0.34; the tool's job is to
+make the budget constraint visible, not to declare a knockout.
+
+**Multi-treatment IPW** (three-arm dataset, test n = 12,800, conversion-valued,
+policies fit on train, valued on holdout):
+
+| Policy | incr. conversions (95% CI) | profit |
+| --- | --- | --- |
+| Mens for all | 48.0 [1.7, 94.3] | $396 |
+| Womens for all | 42.0 [−3.6, 87.6] | $186 — CI includes zero |
+| Argmax email (all) | 51.0 [4.4, 97.6] | $500 — edge over mens-all is IPW noise |
+| Argmax email (top 30%) | 9.0 [−16.6, 34.7] | **−$70** — 9 conversions can't pay 3,840 contacts |
+
+IPW buys honesty with ~3× variance; the capability ("which email, if any?",
+uncertainty attached) is the deliverable, not a precision claim.
+
+**Policy tree** (honest `DRPolicyTree`, depth 3, min leaf 500): 6 segments,
+readable rules on `zip_code_Urban`, `history` (≤100.4 / ≤468.4 / >475) and
+`channel_Phone`. Holdout-graded visit uplifts 0.053–0.102 — **every segment's
+CI excludes zero, including the three the tree labeled "no email"**. The
+capped-depth labels rank relative effect; at these economics the
+profit-maximising action is email-everything (consistent with target-all
+being profitable but budget-infeasible). Read the tree as an effect map.
+
+**Fairness audit** (`zip_code`, same policy): contact disparity is **real** —
+Urban 59.4% contacted vs 40.7% population share (the tree splits on
+`zip_code_Urban`); Suburban 14.4% vs 44.2%; Rural 13.7% vs 15.1%. Effect
+side clean: per-group uplift 0.071–0.083, all CIs exclude zero and overlap →
+no group-level effect disparity supported. The contact disparity is a flagged
+proxy-attribute risk handed to Day 6's adversarial eval; the model card
+states both facts.
+
+**Power analysis** (measured control visit rate 0.1062, 80% power, α = 0.05,
+2,000 eligible/day):
+
+| MDE | per arm | total | duration |
+| --- | --- | --- | --- |
+| +0.5pp (+5%) | 60,818 | 121,636 | 61 days |
+| +1.0pp (+9%) | 15,510 | 31,020 | 16 days |
+| +2.0pp (+19%) | 4,029 | 8,058 | 5 days |
+| +3.0pp (+28%) | 1,857 | 3,714 | 2 days |
+
+Day 3's wide intervals are a sample-size story before a model story; the next
+test should be sized by the business's minimum interesting lift, not by what
+this dataset can barely see.
+
+**Model card**: 5 when-not-to-use rules (spend inside its noise floor;
+champion-vs-DR a tie; no off-Hillstrom claims; no individual causal claims;
+recalibrate before reading probabilities), 3 structural limitations, and a
+fairness note that names the zip-proxy contact disparity.
+
+| Day-4 finding | Evidence |
+| --- | --- |
+| The champion is now an artifact, not a variable | Registry + sidecar; notebook 05's load reproduces the ledger's single-split row (Qini 0.0199, uplift 0.0899) and the profit metric to the cent ($857.60). |
+| The stratified protocol was already sound here — verification, not repair | Converter shares are exactly proportional under the default split because conversion nests inside visit; `stratify_extra` is a tested no-op on this dataset, kept for datasets where money ≠ ranking target. |
+| One split cannot price a depth | 16 of 25 profit-curve CIs include zero; the wobble between neighbouring depths is noise. Break-even at 2% is the only robust depth statement. |
+| Target-all is budget-feasibility's victim, not economics' | $1,451 absolute profit at 3.3× the budget; $0.17/contact vs champion $0.34. The scenario tool exists to make that trade visible. |
+| "Which email" is answerable but expensive to answer honestly | IPW intervals ~3× wider; argmax-all's edge over mens-all is noise; the budget-limited multi-arm policy lost money on this split. |
+| Every holdout-graded segment clears zero — the tree under-targets | Policy-tree labels rank relative effect at capped depth; at $34.91 vs $0.10, email-everything is the profit verdict. Trees are effect maps, not profit oracles. |
+| The fairness audit found a real proxy-attribute risk | Urban contacted at 59% vs 41% share via a `zip_code_Urban` split; group effects overlap cleanly. Flagged in the card, escalated to Day 6's adversarial eval. |
+| Day 3's uncertainty was always a sample-size story | +1pp on a 10.6% visit rate needs 15,510/arm ≈ Hillstrom's whole list; repetition (10 seeds) was the affordable substitute, experiments are the real answer. |
 
 ### Profit formula
 

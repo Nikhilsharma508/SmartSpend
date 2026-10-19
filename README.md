@@ -22,7 +22,7 @@ that change nothing. An uplift model ranks **persuadables** highest instead.
 
 ## Project status
 
-**Days 1–3 complete.**
+**Days 1–4 complete.**
 
 Day 1 — data, scaffold, environment, experiment validation.
 
@@ -54,7 +54,15 @@ Day 3 — DR/causal-forest challengers, calibration, 10-seed benchmark.
 - [x] Learners + calibration notebook — [`research/notebooks/04_hillstrom_learners_calibration.ipynb`](research/notebooks/04_hillstrom_learners_calibration.ipynb)
 - [x] Champion chosen on Qini + profit (pre-registered rule) — statistical tie at the top → **response baseline**; no uplift model clears it (notebook 04 §8)
 
-Days 4–7: see [`plan.md`](plan.md).
+Day 4 — decision layer: registry, profit curve, multi-treatment, policy tree, fairness, power.
+
+- [x] Champion registry — `pipelines/train.py` → `models/champion.joblib` + provenance sidecar (`packages/causal/registry.py`); Day-6 API loads, never trains
+- [x] Stratified-sampling visibility — `split_balance_report` (per-fold SMD/events) + `stratify_extra` money-outcome option (`packages/causal/features.py`)
+- [x] Decision tools (5, typed with Pydantic) — `packages/decision/`: `optimize_budget`, `compare_scenarios`, `get_segment_profile`, `design_ab_test`, `get_model_card`
+- [x] Decision notebook — [`research/notebooks/05_hillstrom_decision_layer.ipynb`](research/notebooks/05_hillstrom_decision_layer.ipynb): profit curve (break-even 2%, peak 30% $858 with its CI), scenario table, multi-arm IPW, policy tree, zip_code fairness audit, power sizing
+- [x] Fairness audit — real contact disparity: Urban 59% vs 41% population share (zip-proxy split); group *effects* overlap cleanly; flagged in the model card, escalated to Day 6
+
+Days 5–7: see [`plan.md`](plan.md).
 
 ## Datasets
 
@@ -140,8 +148,28 @@ Full benchmark, noise floors and the champion reasoning in
 | Qini AUC | **0.0231 ± 0.0094** | 0.0183 ± 0.0091 |
 | uplift@30% (incremental visits/customer) | **0.0912** | 0.0911 |
 | Incremental conversions at 30% targeted | **23.6** (9.2 per 1,000 contacted) | 20.7 (8.1 per 1,000) |
-| Incremental profit per $10k spend | — (Day 4) | — (Day 4) |
+| Incremental profit per $10k spend | **$22,300** | $18,200 |
 | Copilot numeric faithfulness (% figures traced to tools) | — | — (Day 5–6) |
+
+*Profit per $10k spend = net profit per contact (10-seed mean, after contact
+cost) × 100,000 contacts; $10k buys 100k contacts at $0.10 each.*
+
+**Day 4 (notebook 05):** the champion becomes a **registered artifact**
+(`models/champion.joblib` + provenance sidecar; the ledger's single-split row
+reproduced exactly) and five typed tools turn the ranking into decisions.
+Honest headlines: the profit curve breaks even at 2% depth and peaks at 30%
+($858 on the champion's split — but its CI barely clears zero, and 16 of 25
+depths' CIs include it: one split cannot price a depth). Target-all earns
+more in absolute dollars ($1,451) at 3.3× the budget — $0.17/contact vs the
+champion's $0.34. "Which email, if any?" is answerable via IPW but its
+intervals are ~3× wider, and the budget-limited multi-arm policy lost money
+on this split (−$70). The policy tree's 6 readable segments **all** clear
+zero uplift on the holdout — trees are effect maps, not profit oracles. The
+fairness audit found a **real proxy-attribute risk**: Urban customers
+contacted at 59% vs their 41% share (the tree splits on `zip_code_Urban`),
+while group effects overlap cleanly. And a +1pp lift test needs 15,510/arm
+(16 days at 2,000/day) — Day 3's wide intervals were a sample-size story all
+along. Full numbers in [`docs/concepts.md`](docs/concepts.md).
 
 ## Repo structure
 

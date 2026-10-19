@@ -70,15 +70,17 @@ All numbers in `docs/concepts.md` findings ledger, Day 3.)*
 
 ## Day 4 — Decision layer
 
-- [ ] [YOU] Profit curve on holdout: incremental spend × margin − email cost at each targeting depth; find the break-even depth
-- [ ] [YOU] Compare against target-all, random and response-score targeting at a fixed budget
-- [ ] [YOU] Multi-treatment: "which email, if any?" per customer (causalml multi-arm)
-- [ ] [YOU] Policy tree (SingleTreeCateInterpreter): extract readable segment rules, sanity-check them
-- [ ] [YOU] Fairness check: targeting rate and uplift by `zip_code`
-- [ ] [YOU] Power analysis for the next test: choose a realistic MDE, get sample size and duration
-- [ ] [AGENT] Wrap these as 5 typed tools (optimize_budget, compare_scenarios, get_segment_profile, design_ab_test, get_model_card) with Pydantic schemas and pytest tests
+- [x] [YOU] Profit curve on holdout: break-even at 2% depth; peak at 30% = $858 (CI [140, 1,576]); 16/25 depth CIs include zero — no optimal-depth claim from one split (notebook 05 §3)
+- [x] [YOU] Compare against target-all, random and response-score targeting at a fixed budget — target-all $1,451 at 3.3× the budget (infeasible at 30%); champion $858 vs random $435, CIs overlap (notebook 05 §4)
+- [x] [YOU] Multi-treatment: "which email, if any?" per customer — per-arm DR + argmax policy valued with IPW; argmax-all $500 vs mens-all $396 (inside IPW noise); budget-limited top-30% lost $70 (notebook 05 §5)
+- [x] [YOU] Policy tree: readable segment rules, sanity-checked — econml `DRPolicyTree` (causalml's `SingleTreeCateInterpreter` was removed upstream in 0.18); 6 segments; every holdout-graded CI excludes zero, contradicting the tree's "no email" labels — trees are effect maps, not profit oracles (notebook 05 §6)
+- [x] [YOU] Fairness check: targeting rate and uplift by `zip_code` — real contact disparity (Urban 59% vs 41% population share via a `zip_code_Urban` split); group effects overlap cleanly; flagged in the model card, escalated to Day 6 (notebook 05 §7)
+- [x] [YOU] Power analysis for the next test: realistic MDE → sample size and duration — +1pp on the 10.6% visit rate needs 15,510/arm ≈ 16 days at 2,000/day (notebook 05 §8)
+- [x] [YOU] (added) Champion registry — `pipelines/train.py` → `models/champion.joblib` + provenance sidecar (`packages/causal/registry.py`); the ledger's single-split row reproduces exactly
+- [x] [YOU] (added) Stratified-sampling visibility — `split_balance_report` (per-fold SMD/events) + `stratify_extra` money-outcome option (a verified no-op on Hillstrom: conversion nests inside visit)
+- [x] [AGENT] Wrap these as 5 typed tools (optimize_budget, compare_scenarios, get_segment_profile, design_ab_test, get_model_card) with Pydantic schemas and pytest tests — `packages/decision/`, 16 tests in `tests/test_decision.py`
 
-Done when: all 5 tools are callable from Python and the tests pass
+Done when: all 5 tools are callable from Python and the tests pass — ✅ (notebook 05 §9 + test suite)
 
 ---
 
