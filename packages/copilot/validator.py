@@ -75,6 +75,28 @@ _INTERVAL_MARKERS: tuple[str, ...] = ("[", "interval", "confidence", "range", "u
 #: Absolute floors per citation kind — prose rounds a little; it may not move.
 _FLOORS = {"usd": 0.01, "pct": 0.05, "count": 0.5, "num": 0.0005}
 
+#: Typographic characters LLM prose inherits from training data: dashes that
+#: stand in for a minus sign, and no-break spaces that group digits ("2 443").
+_DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
+_DIGIT_GROUP_SEP = re.compile(r"(?<=\d)[\u00a0\u202f\u2009](?=\d)")
+
+
+def _normalize(text: str) -> str:
+    """Canonicalize typographic forms before number extraction.
+
+    A model writing "‑$155.64" (U+2011 hyphen) or "2\u202f443 contacts" (narrow
+    no-break space) cites the same tool number as "-$155.64" / "2443" — only
+    the typography differs, so V1 must not fail on it.
+    """
+    table = str.maketrans({c: "-" for c in _DASHES})
+    return _DIGIT_GROUP_SEP.sub("", text.translate(table))
+
+
+def _has_section(low: str, section: str) -> bool:
+    """True when ``section`` appears as a markdown heading at a line start."""
+    pattern = rf"(?:^|\n)\s*(?:#+\s*|\*\*)\s*{re.escape(section)}\b"
+    return re.search(pattern, low) is not None
+
 
 def _mask(text: str, spans: list[tuple[int, int]]) -> str:
     chars = list(text)
@@ -89,7 +111,10 @@ def extract_cited(text: str) -> list[tuple[float, str]]:
 
     Kinds: ``usd`` (money), ``pct`` (percent/percentage points), ``count``
     (unit-tagged integers), ``num`` (bare signed decimals — effect estimates).
+    Typographic minus signs and digit-grouping no-break spaces are normalized
+    first (see :func:`_normalize`).
     """
+    text = _normalize(text)
     cited: list[tuple[float, str]] = []
     spans: list[tuple[int, int]] = []
 
@@ -207,8 +232,10 @@ def validate(
         ),
     )
 
-    # V4 — required sections for this intent.
-    missing = [s for s in BRIEF_SECTIONS[Intent(scenario.intent)] if s not in low]
+    # V4 — required sections for this intent. A section counts only as a
+    # heading at line start ("## Assumptions" / "**Assumptions**"); the word
+    # appearing somewhere in prose does not satisfy the contract.
+    missing = [s for s in BRIEF_SECTIONS[Intent(scenario.intent)] if not _has_section(low, s)]
     v4 = ValidationCheck(
         rule="V4_sections",
         passed=not missing,

@@ -138,7 +138,10 @@ computed by marketing-science tools; you never compute, estimate or round anythi
 
 Hard rules:
 1. Every number in your brief must appear VERBATIM in the DATA block below. \
-Never invent, re-round, average or extrapolate a number.
+Never invent, re-round, average or extrapolate a number, and never DERIVE one: \
+no counts re-expressed as percentages or shares, no relative or percent changes \
+computed from an interval, no arithmetic between two DATA figures. Quote a count \
+as a count and a fraction as a fraction (the DATA's own percent form is fine).
 2. Where the DATA shows an interval, show that interval in the same sentence.
 3. Causal care: say "the model estimates" or "the holdout shows" - never "will", \
 "guaranteed", "proves", or "because they are ...". A policy segment shows WHO \
@@ -483,9 +486,27 @@ class ChatWriterBase(WriterBase):
 
 
 class OllamaWriter(ChatWriterBase):
-    """Ollama's OpenAI-compatible endpoint; no key by default (local/cloud CLI auth)."""
+    """Ollama's OpenAI-compatible endpoint; no key by default (local/cloud CLI auth).
+
+    ``base_url`` is the *server root* (``http://localhost:11434``); Ollama serves
+    the OpenAI-compatible API under ``/v1``, which is appended when missing so a
+    root URL and a ``/v1`` URL both resolve to ``/v1/chat/completions``.
+    """
 
     name: ClassVar[str] = "ollama"
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str,
+        *,
+        api_key: str | None = None,
+        timeout: float = 60.0,
+    ) -> None:
+        base = base_url.rstrip("/")
+        if not base.endswith("/v1"):
+            base = f"{base}/v1"
+        super().__init__(model, base, api_key=api_key, timeout=timeout)
 
 
 class NeurometricWriter(ChatWriterBase):

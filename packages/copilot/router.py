@@ -31,12 +31,26 @@ QUESTION_POLICY_RISK = "policy_risk"
 QUESTION_MISSING = "missing_inputs"
 
 INTENT_CRITERIA: dict[str, str] = {
-    "plan": "Asks how to allocate a campaign budget or who to target.",
-    "what_if": "Asks how results change if an assumption (cost, budget, depth) changes.",
+    "plan": (
+        "Asks how to allocate a campaign budget or who to target — a plan for the "
+        "setup exactly as stated ('I have $500 — how deep, what will I earn?'; "
+        "nothing changes, they want the plan for what they already have). A bare "
+        "'should we run a campaign?' — the campaign itself as the subject — is "
+        "also plan: answer it with defaults or one clarifying question."
+    ),
+    "what_if": (
+        "Asks how the outcome changes if an assumption CHANGES from a baseline — "
+        "'what if the cost rose to $0.60?', 'if we doubled the budget' — a "
+        "counterfactual with an explicit proposed change, not a plan as stated."
+    ),
     "explain": "Asks who the segments are or why some customers should not be targeted.",
     "test_design": "Asks about experiment size, duration, MDE or success metrics.",
-    "out_of_scope": "Not about campaign planning, uplift, budget, targeting or testing. "
-    "Use this whenever the request fits none of the others.",
+    "out_of_scope": (
+        "Not about campaign planning, uplift, budget, targeting or testing. A vague "
+        "question that names no concrete action or subject ('should we do something "
+        "about X?') is out_of_scope — there is nothing to plan. Use this whenever "
+        "the request fits none of the others."
+    ),
 }
 
 
@@ -66,12 +80,24 @@ def build_questions() -> dict[str, dict[str, object]]:
             "type": "noul",
             "name": QUESTION_MISSING,
             "instructions": (
-                "Must the marketer be asked for a missing parameter (budget, contact "
-                "cost, depth or MDE) before any recommendation can be made?"
+                "Is the request so empty of specifics that the only helpful reply is "
+                "ONE clarifying question back? The copilot has standard defaults for "
+                "contact cost, margin, targeting depth, test MDE and daily volume, "
+                "and it can present a profit curve when no budget is given — so "
+                "budget, audience and test questions are normally answerable as "
+                "stated. Only a vague request with no goal, amount, audience or "
+                "test needs a question back."
             ),
             "criteria": {
-                "true": "A required parameter is absent and the request is unusable without it.",
-                "false": "Enough is stated (or standard defaults apply) to answer.",
+                "true": (
+                    "No usable specifics at all — no goal, no amount, no audience, "
+                    "no test (e.g. a bare 'should we run a campaign?') — so any "
+                    "recommendation would be guesswork."
+                ),
+                "false": (
+                    "What is stated, the standard defaults, or a presented profit "
+                    "curve can carry an answer."
+                ),
             },
         },
     }
@@ -248,11 +274,25 @@ def keyword_fallback_route(question: str) -> Route:
 
 
 def decide_fast_path(route: Route, config: CopilotConfig) -> str:
-    """Apply the thresholds: decline > redirect > clarify > brief."""
+    """Apply the thresholds in priority order.
+
+    1. risk >= ``t_policy_risk``                -> decline (the fixed refusal)
+    2. out_of_scope at >= ``t_oos_confidence``  -> redirect (confident it is off-scope)
+    3. missing >= ``t_missing``                 -> clarify (a *specific* question beats
+       a generic redirect even when the intent choice is uncertain)
+    4. out_of_scope at low confidence, or any
+       choice below ``t_confidence``            -> redirect (never guess)
+    5. otherwise                                -> brief
+    """
     if route.policy_risk >= config.router.t_policy_risk:
         return "decline"
-    if route.intent is Intent.OUT_OF_SCOPE or route.intent_confidence < config.router.t_confidence:
+    if (
+        route.intent is Intent.OUT_OF_SCOPE
+        and route.intent_confidence >= config.router.t_oos_confidence
+    ):
         return "redirect"
     if route.missing_inputs >= config.router.t_missing:
         return "clarify"
+    if route.intent is Intent.OUT_OF_SCOPE or route.intent_confidence < config.router.t_confidence:
+        return "redirect"
     return "brief"

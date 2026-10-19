@@ -168,6 +168,9 @@ class BriefPackage(BaseModel):
         default=False, description="True when [UNVERIFIED] flags were appended after max rewrites."
     )
     provider: str = Field(default="template", description="Writer that produced the prose.")
+    router: Literal["decisions", "keyword_fallback"] = Field(
+        default="decisions", description="Gate that produced the route (live or keyword)."
+    )
     draft_attempts: int = Field(
         default=1, description="Drafts made before this one (0-based retry count)."
     )
@@ -192,11 +195,16 @@ class TraceEvent(BaseModel):
 
 
 class RouterConfig(BaseModel):
-    """Gate thresholds. Calibrated on evals/seed_cases.yaml (Day 5/6)."""
+    """Gate thresholds. Calibrated on evals/seed_cases.yaml (Day 5/6).
+
+    Applied by :func:`packages.copilot.router.decide_fast_path` in order:
+    decline > confident out_of_scope redirect > clarify > cautious redirect > brief.
+    """
 
     t_policy_risk: float = Field(default=0.70, ge=0.0, le=1.0)
     t_missing: float = Field(default=0.60, ge=0.0, le=1.0)
     t_confidence: float = Field(default=0.50, ge=0.0, le=1.0)
+    t_oos_confidence: float = Field(default=0.90, ge=0.0, le=1.0)
 
 
 class PlannerConfig(BaseModel):

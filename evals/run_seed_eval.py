@@ -7,10 +7,11 @@ Not a test (it needs the live gate/writers); notebook 06 and Day 6 call it::
     uv run python evals/run_seed_eval.py --json out.json
 
 Reported: fast-path accuracy (all cases), intent accuracy (brief cases only —
-for decline/redirect the routed intent is not the point), tool-call
-correctness, validator pass@1 / pass@2 (degraded means the second draft also
-failed), and p50/p95 latency. The gate is the live Decisions API when the
-``AZURE_*`` env is present, the keyword fallback otherwise — recorded per case.
+for decline/redirect the routed intent is not the point), tool-call correctness
+(brief cases only), validator pass@1 / pass@2 (brief cases only — fast paths
+have no draft to grade), and p50/p95 latency. The gate is the live Decisions
+API when the ``AZURE_*`` env is present, the keyword fallback otherwise —
+recorded per case.
 """
 
 from __future__ import annotations
@@ -24,9 +25,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+load_dotenv(ROOT / ".env")  # CLI runs live whenever .env carries the AZURE_* names
 
 from packages.copilot import run_request  # noqa: E402
 from packages.copilot.schemas import load_config  # noqa: E402
@@ -61,6 +65,7 @@ def run_seed_eval(
 
         expected_tools = case.get("tools") or []
         ran = {r.name for r in package.tool_runs if r.ok}
+        is_brief = package.fast_path == "brief"
         row = {
             "id": case["id"],
             "fast_path": package.fast_path,
@@ -68,22 +73,30 @@ def run_seed_eval(
             "fast_path_ok": package.fast_path == case["fast_path"],
             "intent": package.intent.value,
             "expected_intent": case["intent"],
+            "is_brief": is_brief,
             "intent_ok": (
-                package.intent.value == case["intent"] if package.fast_path == "brief" else None
+                package.intent.value == case["intent"] if is_brief else None
             ),
             "tools_ok": (
-                set(expected_tools).issubset(ran) if expected_tools else None
+                set(expected_tools).issubset(ran) if expected_tools and is_brief else None
             ),
-            "passed_first_draft": bool(
-                package.validation
-                and package.validation.passed
-                and package.draft_attempts == 1
+            "passed_first_draft": (
+                bool(
+                    package.validation
+                    and package.validation.passed
+                    and package.draft_attempts == 1
+                )
+                if is_brief
+                else None
             ),
-            "passed_final": bool(package.validation and package.validation.passed),
+            "passed_final": (
+                bool(package.validation and package.validation.passed) if is_brief else None
+            ),
             "degraded": package.degraded,
             "attempts": package.draft_attempts,
             "latency_s": round(latency, 2),
-            "router": package.provider,
+            "router": package.router,
+            "writer": package.provider,
         }
         rows.append(row)
 
@@ -91,14 +104,26 @@ def run_seed_eval(
         values = [r[key] for r in rows if r[key] is not None]
         return round(sum(bool(v) for v in values) / len(values), 3) if values else None
 
+    brief_rows = [r for r in rows if r["is_brief"]]
+    n_briefs = len(brief_rows)
     latencies = sorted(r["latency_s"] for r in rows)
     summary = {
         "n_cases": len(rows),
+        "n_briefs": n_briefs,
         "fast_path_accuracy": _rate("fast_path_ok"),
         "intent_accuracy_brief_cases": _rate("intent_ok"),
         "tool_call_correctness": _rate("tools_ok"),
-        "validator_pass_at_1": round(
-            sum(r["passed_first_draft"] and not r["degraded"] for r in rows) / len(rows), 3
+        # pass@1: the configured writer's FIRST draft passed without degradation,
+        # pass@2: the final draft (after one rewrite) passed — both graded on the
+        # cases that actually produced a brief; fast paths have no draft to grade.
+        "validator_pass_at_1": (
+            round(
+                sum(bool(r["passed_first_draft"]) and not r["degraded"] for r in brief_rows)
+                / n_briefs,
+                3,
+            )
+            if n_briefs
+            else None
         ),
         "validator_pass_at_2": _rate("passed_final"),
         "latency_p50_s": statistics.median(latencies),

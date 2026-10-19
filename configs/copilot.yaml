@@ -6,6 +6,10 @@ router:
   t_policy_risk: 0.70     # policy_risk noul >= this -> decline (template, no writer)
   t_missing: 0.60         # missing_inputs noul >= this -> one clarifying question
   t_confidence: 0.50      # intent choice confidence < this -> redirect
+  t_oos_confidence: 0.90  # out_of_scope confidence >= this -> redirect without asking;
+                          # below it the gate falls through to the clarify check first
+                          # (calibrated: campaign_clarify oos 0.86 -> clarify,
+                          #  ambiguous_campaign oos 0.96 -> redirect)
 
 planner:
   default_depth: 0.30     # targeting depth when no budget is stated
@@ -21,12 +25,14 @@ validator:
 writer:
   provider: ollama        # template | ollama | neurometric (flip for ablation)
   timeout_s: 60
-  ollama_base_url: "http://localhost:11434"
+  ollama_base_url: "http://localhost:11434"  # server root; the writer appends /v1
   ollama_model: "gpt-oss:120b-cloud"
   neurometric_model: "neurometric/goal-setter"
 
 prompts:
-  prompt_version: v1      # stamped into the trace; bump when prompts change
+  prompt_version: v2      # stamped into the trace; bump when prompts change
+                          # v2: anti-derivation rule (no derived shares/relative CI)
+                          # after live pass@1 findings, notebook 06
 
 trace:
   enabled: true           # one JSONL row per stage under traces/ (git-ignored)

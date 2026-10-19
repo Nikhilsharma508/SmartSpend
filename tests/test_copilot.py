@@ -151,6 +151,26 @@ def test_gate_threshold_matrix_clarify(config, context):
     assert "budget" in package.clarify_question  # the missing field is named
 
 
+def test_gate_threshold_matrix_clarify_beats_uncertain_oos(config, context):
+    # live shape of campaign_clarify: out_of_scope at ~0.86 with a very high
+    # missing score -> the SPECIFIC clarifying question beats a generic redirect
+    package = _run(
+        "Should we run a campaign?", config, context,
+        answers=_answers(intent="out_of_scope", conf=0.86, miss=0.80),
+    )
+    assert package.fast_path == "clarify"
+
+
+def test_gate_threshold_matrix_confident_oos_redirects_first(config, context):
+    # live shape of ambiguous_campaign: confident out_of_scope -> redirect even
+    # though the missing score is also high
+    package = _run(
+        "Should we do something about the campaign?", config, context,
+        answers=_answers(intent="out_of_scope", conf=0.96, miss=0.97),
+    )
+    assert package.fast_path == "redirect"
+
+
 def test_gate_threshold_matrix_brief(config, context):
     package = _run(PLAN_Q, config, context)
     assert package.fast_path == "brief"
@@ -386,6 +406,15 @@ def test_validator_percent_transform_matches_fraction():
     assert extract_cited("uplift +0.0114")[0][0] == pytest.approx(0.0114)
     assert extract_cited("profit -$155.64")[0][0] == pytest.approx(-155.64)
     assert extract_cited("4,262 contacts")[0][0] == pytest.approx(4262)
+
+
+def test_validator_typographic_forms_match():
+    # live gpt-oss drafts use U+2011 hyphen as a minus and U+202F digit
+    # grouping ("2 443") — same tool numbers, different typography
+    assert extract_cited("\u2011$155.64")[0][0] == pytest.approx(-155.64)
+    assert extract_cited("2\u202f443 contacts")[0][0] == pytest.approx(2443.0)
+    assert extract_cited("\u201340.8% relative")[0][0] == pytest.approx(-40.8)
+    assert extract_cited("\u2212$5.00")[0][0] == pytest.approx(-5.0)
 
 
 def test_validator_citations_carry_paths(config, context):

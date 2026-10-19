@@ -208,13 +208,22 @@ def test_ollama_payload_shape_and_parse(monkeypatch):
     assert result.text == "**Brief**"
     assert result.provider == "ollama"
     assert (result.input_tokens, result.output_tokens) == (10, 5)
-    assert captured["url"] == "http://localhost:11434/chat/completions"
+    # the server root must resolve to Ollama's OpenAI-compatible /v1 path
+    assert captured["url"] == "http://localhost:11434/v1/chat/completions"
     assert captured["payload"]["model"] == "gpt-oss:120b-cloud"
     roles = [m["role"] for m in captured["payload"]["messages"]]
     assert roles == ["system", "user"]
     # no auth header for local ollama, and nothing forbidden in the body
     assert "Authorization" not in captured["headers"]
     assert set(captured["payload"]) == {"model", "messages"}
+
+
+def test_ollama_base_url_v1_not_doubled():
+    """A base URL that already carries /v1 (the OpenAI-compat prefix) is kept as-is."""
+    assert OllamaWriter(model="m", base_url="http://localhost:11434/v1").base_url == (
+        "http://localhost:11434/v1"
+    )
+    assert OllamaWriter(model="m", base_url="http://h").base_url == "http://h/v1"
 
 
 def test_neurometric_sends_bearer_token(monkeypatch):
