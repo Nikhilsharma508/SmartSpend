@@ -20,7 +20,7 @@ recorded as ``router=keyword_fallback`` in the trace, never silently.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from packages.copilot.providers import DecisionsClient, ProviderError
 from packages.copilot.schemas import CopilotConfig, Intent, Route
@@ -152,9 +152,9 @@ def parse_route(
     )
 
 
-def route_question(question: str, client: DecisionsClient) -> Route:
-    """One gate call; on any provider failure, the deterministic keyword route."""
-    state = {
+def build_state(question: str) -> dict[str, Any]:
+    """The Decisions API ``state`` payload for one question."""
+    return {
         "user_question": question,
         "available_context": (
             "Campaign copilot for uplift-based email targeting on the Hillstrom "
@@ -162,8 +162,20 @@ def route_question(question: str, client: DecisionsClient) -> Route:
             "get_segment_profile, design_ab_test, get_model_card."
         ),
     }
+
+
+def route_question(
+    question: str,
+    client: DecisionsClient,
+    *,
+    state: dict[str, Any] | None = None,
+    questions: dict[str, dict[str, object]] | None = None,
+) -> Route:
+    """One gate call; on any provider failure, the deterministic keyword route."""
+    state = state if state is not None else build_state(question)
+    questions = questions if questions is not None else build_questions()
     try:
-        body = client.decide(state, build_questions())
+        body = client.decide(state, questions)
         return parse_route(body.get("answers", {}))
     except ProviderError:
         return keyword_fallback_route(question)

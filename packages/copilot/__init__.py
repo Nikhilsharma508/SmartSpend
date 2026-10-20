@@ -21,7 +21,13 @@ import time
 
 from packages.copilot.planner import HoldoutContext, extract_scenario, get_context, run_tools
 from packages.copilot.providers import DecisionsClient, ProviderError
-from packages.copilot.router import decide_fast_path, keyword_fallback_route, route_question
+from packages.copilot.router import (
+    build_questions,
+    build_state,
+    decide_fast_path,
+    keyword_fallback_route,
+    route_question,
+)
 from packages.copilot.schemas import (
     BriefPackage,
     CopilotConfig,
@@ -135,6 +141,10 @@ def run_request(
                 "provider": package.provider,
                 "fast_path": package.fast_path,
                 "intent": package.intent.value,
+                "llm.decision": package.router,
+                "llm.response": (
+                    package.provider if package.fast_path == "brief" else "none"
+                ),
                 **(
                     {"decline_reason": package.decline_reason}
                     if package.decline_reason
@@ -161,14 +171,45 @@ def _run_request(
 
     # ── [1] GATE ───────────────────────────────────────────────────────────
     t0 = time.perf_counter()
-    with trace_span("gate", "LLM", inputs={"question": question}) as span:
-        if client is None:
-            try:
-                client = DecisionsClient.from_env()
-            except ProviderError:
-                client = None
+    if client is None:
+        try:
+            client = DecisionsClient.from_env()
+        except ProviderError:
+            client = None
+
+    if client is not None:
+        gate_state = build_state(question)
+        gate_questions = build_questions()
+        gate_name = "decision_llm"
+        gate_inputs = {
+            "model": getattr(client, "model", "unknown"),
+            "state": gate_state,
+            "questions": gate_questions,
+        }
+        gate_attributes = {
+            "smartspend.llm_role": "decision",
+            "llm.provider": "decisions",
+            "llm.model": getattr(client, "model", "unknown"),
+        }
+    else:
+        gate_state = None
+        gate_questions = None
+        gate_name = "decision_router_fallback"
+        gate_inputs = {"question": question, "router": "keyword_fallback"}
+        gate_attributes = {
+            "smartspend.llm_role": "decision",
+            "llm.provider": "keyword_fallback",
+            "llm.model": "none",
+        }
+
+    with trace_span(
+        gate_name,
+        "LLM" if client is not None else "CHAIN",
+        inputs=gate_inputs,
+        attributes=gate_attributes,
+    ) as span:
         route = (
-            route_question(question, client)
+            route_question(question, client, state=gate_state, questions=gate_questions)
             if client is not None
             else keyword_fallback_route(question)
         )

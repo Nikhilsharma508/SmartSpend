@@ -17,7 +17,7 @@ from packages.copilot.planner import (
     extract_scenario,
     run_tools,
 )
-from packages.copilot.providers import ProviderError, WriterBase
+from packages.copilot.providers import ChatWriterBase, ProviderError, TemplateWriter, WriterBase
 from packages.copilot.router import (
     build_questions,
     decide_fast_path,
@@ -75,6 +75,23 @@ class ScriptedWriter(WriterBase):
         text = self.texts[min(self.calls, len(self.texts) - 1)]
         self.calls += 1
         return DraftResult(text=text, provider=self.name, latency_s=0.0)
+
+
+class FakeChatWriter(ChatWriterBase):
+    """Chat writer with the prompt contract but no network.
+
+    Returns the template's already-valid prose so the trace can be asserted
+    without calling Ollama or the NEUROMETRIC gateway.
+    """
+
+    name = "ollama"
+
+    def __init__(self) -> None:
+        super().__init__(model="fake-gpt", base_url="http://fake")
+
+    def write(self, request: DraftRequest) -> DraftResult:
+        draft = TemplateWriter().write(request)
+        return draft.model_copy(update={"provider": self.name})
 
 
 @pytest.fixture
@@ -590,12 +607,58 @@ def test_run_request_mlflow_trace(config, context, tmp_path, monkeypatch):
     span_names = {span.name for span in trace.data.spans}
     assert {
         "copilot",
-        "gate",
+        "decision_llm",
         "plan",
         "profit_point",
         "write_validate",
+        "response_writer_attempt_1",
         "validate_attempt_1",
     } <= span_names
+
+
+def test_mlflow_trace_exposes_llm_prompts_and_roles(config, context, tmp_path, monkeypatch):
+    """MLflow shows the gate request and the writer's exact system/user prompt."""
+    db = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db}")
+    monkeypatch.setenv("MLFLOW_TRACING", "1")
+    monkeypatch.setattr(
+        "packages.copilot.get_writer", lambda config, provider: FakeChatWriter()
+    )
+
+    package = run_request(
+        PLAN_Q,
+        config=config,
+        client=FakeDecisions(_answers()),
+        writer_provider="ollama",
+        context=context,
+        mlflow_trace=True,
+    )
+
+    import mlflow
+    from mlflow import MlflowClient
+
+    mlflow.flush_trace_async_logging()
+    client = MlflowClient(tracking_uri=f"sqlite:///{db}")
+    experiment = client.get_experiment_by_name("smartspend")
+    assert experiment is not None
+    trace = client.search_traces(locations=[experiment.experiment_id])[0]
+    spans = {span.name: span for span in trace.data.spans}
+
+    decision = spans["decision_llm"]
+    assert decision.inputs["state"]["user_question"] == PLAN_Q
+    assert "intent" in decision.inputs["questions"]
+    assert decision.attributes["smartspend.llm_role"] == "decision"
+    assert decision.attributes["llm.provider"] == "decisions"
+
+    response = spans["response_llm_attempt_1"]
+    messages = response.inputs["messages"]
+    assert messages[0]["role"] == "system"
+    assert "You are an analyst" in messages[0]["content"]
+    assert messages[1]["role"] == "user"
+    assert PLAN_Q in messages[1]["content"]
+    assert response.attributes["smartspend.llm_role"] == "response"
+    assert response.attributes["llm.model"] == "fake-gpt"
+    assert package.trace_id == trace.info.client_request_id
 
 
 # --- config / seed cases ----------------------------------------------------

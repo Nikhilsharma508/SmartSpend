@@ -477,13 +477,19 @@ owning rule.
 ### Trace
 
 Every request opens one MLflow GenAI trace in the `smartspend` experiment:
-`copilot` (root) with child spans for `gate`, `plan`, each Day-4 tool, and
-`write_validate` → `write_attempt_*` / `validate_attempt_*`. Spans carry the
-inputs/outputs (route confidence, scenario, tool results, draft tokens,
-validator checks and citations), and the request's short `trace_id` is stored
-as MLflow `client_request_id` plus a `smartspend.trace_id` tag. Everything
-lives in `mlflow.db`; no JSONL or artifact files are written. Tracing is
-best-effort and can be disabled with `MLFLOW_TRACING=0`.
+`copilot` (root) with child spans for `decision_llm` (the gate model, its
+`state`, and the three named questions), `plan`, each Day-4 tool, and
+`write_validate` → `response_llm_attempt_*` (the exact system/user messages)
+or `response_writer_attempt_*` (the deterministic template) /
+`validate_attempt_*`. Spans carry the inputs/outputs (route confidence,
+scenario, tool results, prompt messages, draft tokens, validator checks and
+citations); attributes `smartspend.llm_role` (`decision` / `response`),
+`llm.provider` and `llm.model` make the two model roles explicit. The request's
+short `trace_id` is stored as MLflow `client_request_id` plus a
+`smartspend.trace_id` tag, and the trace header carries `llm.decision` /
+`llm.response` tags. Everything lives in `mlflow.db`; no JSONL or artifact
+files are written. Tracing is best-effort and can be disabled with
+`MLFLOW_TRACING=0`.
 
 ---
 

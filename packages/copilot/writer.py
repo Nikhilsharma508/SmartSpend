@@ -10,12 +10,16 @@ returns the prose with explicit ``[UNVERIFIED: …]`` flags and
 
 from __future__ import annotations
 
+from typing import Any
+
 from packages.copilot.providers import (
+    ChatWriterBase,
     NeurometricWriter,
     OllamaWriter,
     ProviderError,
     TemplateWriter,
     WriterBase,
+    build_prompt,
 )
 from packages.copilot.schemas import (
     CopilotConfig,
@@ -80,10 +84,34 @@ def write_brief(
 
     for _round in range(1 + config.validator.max_rewrites + 1):
         draft_request = request.model_copy(update={"retry_errors": retry_errors})
+        prompt = build_prompt(draft_request) if isinstance(writer, ChatWriterBase) else None
+        model = getattr(writer, "model", None)
+        span_name = (
+            f"response_llm_attempt_{_round + 1}"
+            if prompt is not None
+            else f"response_writer_attempt_{_round + 1}"
+        )
+        span_inputs: dict[str, Any] = {
+            "provider": writer.name,
+            "retry_errors": retry_errors,
+        }
+        if prompt is not None:
+            span_inputs["model"] = model
+            span_inputs["prompt_version"] = config.prompts.prompt_version
+            span_inputs["messages"] = [
+                {"role": "system", "content": prompt.system},
+                {"role": "user", "content": prompt.user},
+            ]
         with trace_span(
-            f"write_attempt_{_round + 1}",
-            "LLM",
-            inputs={"provider": writer.name, "retry_errors": retry_errors},
+            span_name,
+            "LLM" if prompt is not None else "CHAIN",
+            inputs=span_inputs,
+            attributes={
+                "smartspend.llm_role": "response",
+                "llm.provider": writer.name,
+                "llm.model": model or "deterministic",
+                "prompt.version": config.prompts.prompt_version,
+            },
         ) as span:
             try:
                 draft = writer.write(draft_request)
@@ -98,6 +126,7 @@ def write_brief(
                 span,
                 {
                     "provider": draft.provider,
+                    "model": model,
                     "chars": len(draft.text),
                     "input_tokens": draft.input_tokens,
                     "output_tokens": draft.output_tokens,

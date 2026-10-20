@@ -132,7 +132,8 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   is the documented production option). No auth on local services.
 - **MLflow tracks locally in SQLite only** (MLflow 3.17, `mlflow.db`): the champion's
   params/metrics, and one GenAI trace per `/api/v1/copilot` request with child spans for
-  gate, plan, each Day-4 tool, write and validate. No artifacts are logged — the joblib
+  `decision_llm`, plan, each Day-4 tool, `response_llm_attempt_*` (or
+  `response_writer_attempt_*`) and validate. No artifacts are logged — the joblib
   and provenance sidecar in `models/` remain the load-path code of record. `npm run mlflow`
   serves the store; the UI's **GenAI → Traces** view is the copilot audit view.
 
