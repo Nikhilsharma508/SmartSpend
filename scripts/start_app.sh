@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # SmartSpend one-command runbook: `npm run start` (or `bash scripts/start_app.sh`).
-# Starts the FastAPI service when it exists (apps/api/app/main.py) plus the web
-# planner. Until apps/api lands, this runs the web alone in offline playback
-# mode — that is the honest default, not a degraded one.
+# Starts the FastAPI service plus the web planner. The web app has no fallback
+# data: if the API cannot start, the script stops rather than serving a replay.
 #
 # Port discipline: a previous run that was suspended (Ctrl+Z) or killed badly
 # can leave a stopped uvicorn/vite holding a port with a socket that never
@@ -131,24 +130,21 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # --- preflight: one owner per port, no silent hopping ----------------------
-BACKEND=0
-if [ -f apps/api/app/main.py ]; then
-  BACKEND=1
-  command -v uv >/dev/null 2>&1 || { echo "error: uv is not on PATH (~/.local/bin); the backend needs it" >&2; exit 1; }
-  [ -d .venv ] || uv sync
+BACKEND=1
+command -v uv >/dev/null 2>&1 || { echo "error: uv is not on PATH (~/.local/bin); the backend needs it" >&2; exit 1; }
+[ -d .venv ] || uv sync
 
-  if [ -n "$(port_pids "$API_PORT")" ] && api_healthy; then
-    REUSE=1
-    for pid in $(port_pids "$API_PORT"); do is_ours "$pid" || REUSE=0; done
-    if [ "$REUSE" = 1 ]; then
-      echo "==> reusing the healthy API already on :$API_PORT"
-      BACKEND=2
-    else
-      free_port "$API_PORT" "API"
-    fi
+if [ -n "$(port_pids "$API_PORT")" ] && api_healthy; then
+  REUSE=1
+  for pid in $(port_pids "$API_PORT"); do is_ours "$pid" || REUSE=0; done
+  if [ "$REUSE" = 1 ]; then
+    echo "==> reusing the healthy API already on :$API_PORT"
+    BACKEND=2
   else
     free_port "$API_PORT" "API"
   fi
+else
+  free_port "$API_PORT" "API"
 fi
 
 # Whole stack already up and healthy from this repo? Leave it alone.
@@ -157,7 +153,7 @@ if [ -n "$(port_pids "$WEB_PORT")" ] && web_healthy; then
   WEB_UP=1
   for pid in $(port_pids "$WEB_PORT"); do is_ours "$pid" || WEB_UP=0; done
 fi
-if [ "$WEB_UP" = 1 ] && { [ "$BACKEND" = 0 ] || [ "$BACKEND" = 2 ]; }; then
+if [ "$WEB_UP" = 1 ] && [ "$BACKEND" = 2 ]; then
   trap - EXIT INT TERM
   echo "==> SmartSpend is already running: http://localhost:$WEB_PORT (API :$API_PORT)"
   exit 0
@@ -165,7 +161,7 @@ fi
 
 free_port "$WEB_PORT" "web"
 
-# --- backend, only once it exists ---
+# --- backend ---
 if [ "$BACKEND" = 1 ]; then
   echo "==> starting FastAPI on :$API_PORT"
   uv run uvicorn apps.api.app.main:app --port "$API_PORT" --reload &
@@ -177,8 +173,6 @@ if [ "$BACKEND" = 1 ]; then
     exit 1
   fi
   echo "    API docs → http://localhost:$API_PORT/docs"
-elif [ "$BACKEND" = 0 ]; then
-  echo "==> apps/api not built yet — web runs in offline playback mode (fixtures only)"
 fi
 
 echo "==> starting web on :$WEB_PORT → http://localhost:$WEB_PORT"

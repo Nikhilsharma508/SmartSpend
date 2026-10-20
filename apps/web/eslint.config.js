@@ -47,9 +47,9 @@ export default tseslint.config(
       "no-useless-assignment": "off",
     },
   },
-  // Fixtures and the Vitest smoke test may use loose object literals.
+  // The Vitest smoke test and its JSON snapshot may use loose object literals.
   {
-    files: ["src/api/mock/**/*.ts", "src/api/mock/**/*.tsx", "tests/**/*.{ts,tsx}"],
+    files: ["tests/**/*.{ts,tsx}"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
     },

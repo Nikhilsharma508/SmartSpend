@@ -34,9 +34,8 @@ commands need the shims on PATH:
 
 ```bash
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
-npm run start                      # boots everything: web dev server :5173,
-                                   # plus FastAPI :8000 once apps/api/app/main.py exists
-pnpm -C apps/web dev               # vite dev server on :5173 (proxies /api → :8000)
+npm run start                      # boots everything: FastAPI :8000 then web :5173
+pnpm -C apps/web dev               # vite only on :5173 (proxies /api and /health → :8000)
 pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   && pnpm -C apps/web test         # web quality gates before any commit (then build)
 ```
