@@ -821,6 +821,7 @@ Day-5 finding table:
 | One command boots the app | `npm run start` → `scripts/start_app.sh`: mise-pinned node 22/pnpm 10, installs web deps when missing, starts FastAPI :8000 only once `apps/api/app/main.py` exists (web-only notice until then), Vite :5173, trap cleanup on exit. |
 | MLflow tracks the champion and every decision run | Local SQLite backend + `mlruns/` artifacts; `pipelines/log_mlflow.py` backfills the champion (run id logged), and each `/api/v1/copilot` call logs a decision run. Setuptools pinned <71 and protobuf <5 for mlflow 1.27 compat. |
 | Model audit | Only the champion (response baseline, seed 42) is persisted; S/T/X/DR/forest trained in notebooks but not saved (re-trainable via `train.py --learner`); policy tree refit on demand. MLflow backfill limited accordingly. |
+| Day-6 eval (46 cases) | fast_path 0.913, intent 1.000, tool-call 1.000, validator pass@1 1.000, p50 1.15s (template writer, live gate). Ablation: keyword fallback 0.739 / 0.844 / 0.800 / 0.00s — router earns its place (+0.174 fast-path, +0.200 tools, +1.15s). |
 
 ### Profit formula
 

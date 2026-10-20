@@ -106,8 +106,9 @@ def extract_scenario(
     if intent in (Intent.PLAN, Intent.WHAT_IF):
         for value, span in _amounts(question):
             if _near(question, span, context_patterns, 20) and value < 100:
-                cost = cost if cost is not None else value
-            elif budget is None:
+                if value > 0:
+                    cost = cost if cost is not None else value
+            elif budget is None and value > 0:
                 budget = value
 
     depth: float | None = None
@@ -144,10 +145,10 @@ def extract_scenario(
             depth = p.default_depth
             used.append(f"targeting depth defaulted to {depth:.0%} (no budget stated)")
     if intent is Intent.TEST_DESIGN:
-        if mde is None:
+        if mde is None or mde <= 0:
             mde = p.default_mde
             used.append(f"MDE defaulted to +{mde * 100:.0f} percentage points on the visit rate")
-        if daily is None:
+        if daily is None or daily <= 0:
             daily = p.default_daily_eligible
             used.append(f"daily eligible traffic defaulted to {daily:,} customers/day")
 

@@ -598,7 +598,7 @@ def test_seed_cases_file_is_well_formed():
     from evals.run_seed_eval import load_cases
 
     cases = load_cases()
-    assert len(cases) == 15
+    assert len(cases) == 46
     valid_fast_paths = {"brief", "clarify", "decline", "redirect"}
     for case in cases:
         assert {"id", "question", "intent", "fast_path"} <= set(case)
@@ -616,11 +616,11 @@ def test_brief_sections_cover_every_intent():
 
 
 def test_seed_eval_offline_smoke(config, context):
-    """The runner works end-to-end with the template writer (15 cases, fast)."""
+    """The runner works end-to-end with the template writer (46 cases, fast)."""
     from evals.run_seed_eval import load_cases, run_seed_eval
 
     report = run_seed_eval(provider="template", cases=load_cases(), context=context)
-    assert report["summary"]["n_cases"] == 15
-    # the keyword fallback (no AZURE_* exported in tests) answers at least
-    # 12 of 15 cases on the right path — documented fallback quality
+    assert report["summary"]["n_cases"] == 46
+    # the gate (live when AZURE_* is present, keyword fallback otherwise)
+    # answers at least 80% of cases on the right path — documented quality
     assert report["summary"]["fast_path_accuracy"] >= 0.8

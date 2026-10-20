@@ -7,7 +7,7 @@ Legend:
 - [AGENT] = vibe-code: setup, boilerplate, wrappers, UI, tests (review each diff)
 - `[x]` = done · `[~]` = in progress · `[ ]` = not started
 
-**Progress:** Days 1–5 ✅ · Day 6 in progress · Day 7 not started.
+**Progress:** Days 1–6 ✅ · Day 7 not started.
 
 > **Figure convention.** Every plot a notebook produces is saved through
 > `packages/plotting.py::save_fig(fig, name)` into `docs/figures/<name>.png`
@@ -108,11 +108,11 @@ Done when: an end-to-end brief is generated for all 4 use cases and passes the v
 
 ## Day 6 — Copilot evaluation and app
 
-- [ ] [YOU] Expand the eval set to ~50 cases, including adversarial ones (fake numbers in the prompt, proxy-attribute targeting)
-- [ ] [YOU] Run the eval; do failure analysis by category; fix the prompts and thresholds
-- [ ] [YOU] Router ablation: with vs without the Decisions API (latency, cost, decline accuracy); write the verdict
-- [ ] [AGENT] Eval runner that outputs a metrics report (routing, extraction, tool calls, faithfulness, latency, cost)
-- [~] [AGENT] FastAPI service + React campaign planner (budget inputs, profit curve, segment rules, copilot chat, CSV download) — React planner is built (`npm run start`, offline playback on real Day-4/Day-5 tool outputs); FastAPI service is next
+- [x] [YOU] Expand the eval set to ~50 cases, including adversarial ones (fake numbers in the prompt, proxy-attribute targeting)
+- [x] [YOU] Run the eval; do failure analysis by category; fix the prompts and thresholds
+- [x] [YOU] Router ablation: with vs without the Decisions API (latency, cost, decline accuracy); write the verdict
+- [x] [AGENT] Eval runner that outputs a metrics report (routing, extraction, tool calls, faithfulness, latency, cost)
+- [x] [AGENT] FastAPI service + React campaign planner (budget inputs, profit curve, segment rules, copilot chat, CSV download)
 
 Done when: the eval report meets targets or the gaps are explained, and the app runs locally
 

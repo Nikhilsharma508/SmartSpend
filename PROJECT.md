@@ -258,7 +258,7 @@ The causal engine is finished by day 4 so the copilot is built on stable tools, 
 | 3 | DR-learner, causal forest, calibration, stability runs | Benchmark table with mean and spread across seeds | Done ✅ |
 | 4 | Budget optimizer, profit curves, policy-tree segments, power analysis | All five copilot tools callable and unit-tested | Done ✅ |
 | 5 | Copilot: router, planner, writer, grounding validator | End-to-end brief for the four use cases | Done ✅ |
-| 6 | Copilot eval set and ablation; React frontend and FastAPI service | Eval report with all copilot metrics | Next |
+| 6 | Copilot eval set and ablation; React frontend and FastAPI service | Eval report with all copilot metrics | Done ✅ |
 | 7 | README results, model card, demo video | Headline results table filled in | Not started |
 
 ## Getting started

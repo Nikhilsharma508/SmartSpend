@@ -9,7 +9,15 @@ from fastapi import FastAPI
 from .api.v1.router import api_router
 from .core.config import settings
 
-FIXTURES_PATH = Path(__file__).resolve().parents[3] / "apps" / "web" / "src" / "api" / "mock" / "fixtures.json"
+FIXTURES_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "apps"
+    / "web"
+    / "src"
+    / "api"
+    / "mock"
+    / "fixtures.json"
+)
 
 
 @asynccontextmanager

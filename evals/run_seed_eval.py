@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
@@ -45,13 +46,19 @@ def run_seed_eval(
     provider: str | None = None,
     cases: list[dict[str, Any]] | None = None,
     context: Any | None = None,
+    router: str = "live",
 ) -> dict[str, Any]:
     """Run every seed case through ``run_request`` and score against labels.
 
     ``context`` is injectable so tests can run the identical scoring on a
     synthetic holdout instead of the registered champion.
+    ``router`` selects the gate: "live" uses the Decisions API when configured,
+    "keyword" forces the deterministic keyword fallback (ablation).
     """
     config = load_config()
+    if router == "keyword":
+        for k in [k for k in list(os.environ) if k.startswith("AZURE_")]:
+            del os.environ[k]
     config.trace.enabled = False  # the eval prints its own report, not JSONL rows
     cases = cases if cases is not None else load_cases()
 
@@ -136,10 +143,16 @@ def run_seed_eval(
 def main() -> None:  # pragma: no cover - CLI
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", default=None, help="template | ollama | neurometric")
+    parser.add_argument(
+        "--router",
+        default="live",
+        choices=["live", "keyword"],
+        help="live (Decisions API) or keyword (ablation)",
+    )
     parser.add_argument("--json", default=None, help="write the full report to this path")
     args = parser.parse_args()
 
-    report = run_seed_eval(provider=args.provider)
+    report = run_seed_eval(provider=args.provider, router=args.router)
     for row in report["cases"]:
         flags = []
         if not row["fast_path_ok"]:
