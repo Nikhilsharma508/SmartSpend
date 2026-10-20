@@ -208,9 +208,15 @@ def annotate_trace(
         pass
 
 
-def log_champion() -> str | None:
-    """Log the registered champion once per metadata digest; returns its run id."""
-    meta_path = REPO_ROOT / "models" / "champion.meta.json"
+def log_registered_model(name: str = "champion") -> str | None:
+    """Log one registered artifact once per metadata digest; None when absent/off.
+
+    Every registered model gets a run so the MLflow compare view can line the
+    six learners up against each other; tags carry the catalog semantics
+    (``tier``, ``score_kind``, ``research.mode``) so the UI can filter. No
+    artifacts are ever logged — the sidecar remains the provenance record.
+    """
+    meta_path = REPO_ROOT / "models" / f"{name}.meta.json"
     if not meta_path.exists():
         return None
 
@@ -229,18 +235,20 @@ def log_champion() -> str | None:
         if experiment is not None:
             existing = client.search_runs(
                 [experiment.experiment_id],
-                filter_string=(
-                    f"tags.meta_digest = '{digest}' and tags.role = 'champion'"
-                ),
+                filter_string=(f"tags.meta_digest = '{digest}' and tags.model_name = '{name}'"),
                 max_results=1,
             )
             if existing:
                 return existing[0].info.run_id
 
-        with mlflow.start_run(run_name="champion-response-seed42") as run:
+        learner = str(meta.get("learner", name))
+        tier = str(meta.get("tier", "research"))
+        run_name = f"{name}-{learner}-seed{meta.get('random_state', '?')}"
+        with mlflow.start_run(run_name=run_name) as run:
             mlflow.log_params(
                 {
                     "learner": meta.get("learner"),
+                    "model_name": name,
                     "target": meta.get("target"),
                     "seed": meta.get("random_state"),
                     "k": meta.get("k"),
@@ -252,8 +260,34 @@ def log_champion() -> str | None:
             )
             for k, v in assumptions.items():
                 mlflow.log_param(f"assumption_{k}", v)
-            mlflow.set_tag("role", "champion")
+            mlflow.set_tag("role", tier)
+            mlflow.set_tag("model_name", name)
+            mlflow.set_tag("tier", tier)
+            mlflow.set_tag("score_kind", str(meta.get("score_kind", "unknown")))
+            mlflow.set_tag("research.mode", (
+                "on" if str(tier) == "research" else "off"
+            ))
             mlflow.set_tag("meta_digest", digest)
             return run.info.run_id
     except Exception:  # noqa: BLE001 - tracking must never break a boot
         return None
+
+
+def log_registered_models() -> list[str]:
+    """Log every registered catalog artifact; returns the run ids that were logged."""
+    from packages.causal.catalog import MODEL_SPECS
+    from packages.causal.registry import is_registered
+
+    logged: list[str] = []
+    for spec in MODEL_SPECS:
+        if not is_registered(spec.name):
+            continue
+        run_id = log_registered_model(spec.name)
+        if run_id:
+            logged.append(run_id)
+    return logged
+
+
+def log_champion() -> str | None:
+    """Backwards-compatible alias: log the champion artifact only."""
+    return log_registered_model("champion")

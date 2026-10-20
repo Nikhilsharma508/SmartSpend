@@ -2,21 +2,34 @@ import { useEffect, useState, type ReactNode } from "react"
 import { NavLink, Link, useLocation } from "react-router-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { useTheme } from "next-themes"
-import { Moon, Sun } from "lucide-react"
+import { Check, ChevronDown, Lock, Moon, Sun, Unlock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useApiHealth } from "@/hooks/use-api-health"
+import { useModels } from "@/hooks/use-models"
+import { applyModelChoice, toggleResearchMode } from "@/lib/model-actions"
 import { cn } from "@/lib/utils"
+import { useModelSettings } from "@/state/model-settings"
 
 const TABS = [
   { to: "/", label: "Planner" },
   { to: "/segments", label: "Segments" },
   { to: "/test-design", label: "Test design" },
+  { to: "/models", label: "Models" },
   { to: "/copilot", label: "Copilot" },
 ]
 
@@ -141,6 +154,102 @@ function ApiBadge() {
   )
 }
 
+const TIER_DOT: Record<string, string> = {
+  champion: "bg-primary",
+  challenger: "bg-sky-400",
+  research: "bg-amber-400",
+}
+
+/** The answering model, visible on every page. Switching it here recomputes
+ * the numbers on the page you are already looking at — no lab round-trip. */
+function ModelPill() {
+  const { model, researchMode, pickModel, setResearchMode } = useModelSettings()
+  const { data } = useModels()
+  const current = data?.models.find((m) => m.name === model)
+  const actions = { pickModel, setResearchMode }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`Answering model: ${current?.label ?? model} — open to switch`}
+          title="The selected model answers every page — switch it here and this page recomputes"
+          className="h-7 gap-2 rounded-full border-border/60 px-3 text-[11px] font-medium"
+        >
+          <span className={cn("size-1.5 rounded-full", TIER_DOT[current?.tier ?? "champion"])} />
+          <span className={cn("max-w-36 truncate", researchMode && "text-amber-600 dark:text-amber-300")}>
+            {current?.label ?? model}
+          </span>
+          {researchMode ? (
+            <Unlock className="size-3 text-amber-500" />
+          ) : (
+            <Lock className="size-3 text-muted-foreground/70" />
+          )}
+          <ChevronDown className="size-3 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel className="text-[11px] uppercase tracking-wider">
+          Answering model
+        </DropdownMenuLabel>
+        {data
+          ? data.models.map((m) => {
+              const active = m.name === model
+              const unavailable = !m.registered || (!m.selectable && !researchMode)
+              return (
+                <DropdownMenuItem
+                  key={m.name}
+                  disabled={unavailable}
+                  onSelect={() => applyModelChoice(m, { pickModel })}
+                  className="items-start gap-2.5 py-2"
+                >
+                  <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", TIER_DOT[m.tier])} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2 text-[12px] font-medium">
+                      {m.label}
+                      {active && <Check className="size-3 text-primary" />}
+                    </span>
+                    <span className="block truncate text-[10px] text-muted-foreground">
+                      {m.use_case}
+                    </span>
+                  </span>
+                  {m.research_only && <Lock className="mt-0.5 size-3 shrink-0 text-amber-500/80" />}
+                </DropdownMenuItem>
+              )
+            })
+          : (
+            <p className="px-2 py-3 text-[11px] text-muted-foreground">loading the model catalog…</p>
+          )}
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem
+          checked={researchMode}
+          onCheckedChange={(v) =>
+            toggleResearchMode(v === true, { models: data?.models ?? [], model, ...actions })
+          }
+          className={cn("gap-2", researchMode && "text-amber-600 dark:text-amber-300")}
+        >
+          Research Mode
+        </DropdownMenuCheckboxItem>
+        <p className="px-2 pb-2 pt-1 text-[10px] leading-relaxed text-muted-foreground">
+          Unlocks the benchmark-weak tiers (S/T/X learners, causal forest) for
+          exploration. Locked rows stay listed but untouchable until it is on.
+        </p>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link
+            to="/models"
+            className="text-[12px] text-muted-foreground hover:text-foreground"
+          >
+            Model lab — all models, side by side →
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function NavPill() {
   const location = useLocation()
   const [canAnimate, setCanAnimate] = useState(false)
@@ -226,6 +335,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavPill />
 
           <div className="flex items-center gap-2">
+            <ModelPill />
             <ApiBadge />
             <ThemeToggle />
           </div>
@@ -236,8 +346,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <footer className="relative mx-auto max-w-6xl px-6 pb-10 text-xs text-muted-foreground">
         Profit in USD at the Day-1 assumptions (30% margin · $0.10/contact ·
-        $34.91/conversion). Numbers are computed live from the registered champion on
-        its seed-42 test split (n = 8,523) — the tools' own outputs.
+        $34.91/conversion). Numbers are computed live from the model in the
+        header pill (registered artifact, seed-42 test split) — the tools' own
+        outputs.
       </footer>
     </div>
   )

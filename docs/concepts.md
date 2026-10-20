@@ -398,13 +398,14 @@ validator decides** — the generative model never supplies a fact.
 
 ### The gate (router)
 
-Three named questions ride **one** Decisions API call (fast paths stay fast):
+Four named questions ride **one** Decisions API call (fast paths stay fast):
 
 | Question | Type | Answers |
 | --- | --- | --- |
 | `intent` | choice | plan / what_if / explain / test_design / out_of_scope + confidence |
 | `policy_risk` | noul | targeting or excluding by a sensitive attribute or a proxy (0–1) |
 | `missing_inputs` | noul | is the request so empty that only a clarifying question helps? (0–1) |
+| `model` | choice | which registered learner should answer, or `none` ("the user didn't say") |
 
 Thresholds (`configs/copilot.yaml`, calibrated on the 15 seed cases) decide the
 path **in order** — decline ≥ confident redirect ≥ clarify ≥ cautious redirect ≥
@@ -417,13 +418,51 @@ brief:
 | `t_missing` | 0.60 | clarify — one named question; beats an *uncertain* out-of-scope redirect |
 | `t_confidence` | 0.50 | redirect — never guess on a low-confidence choice |
 
+| Threshold | Value | Fires |
+| --- | --- | --- |
+| `t_policy_risk` | 0.70 | decline — the fixed refusal text; no tools, no writer |
+| `t_oos_confidence` | 0.90 | redirect — confidently `out_of_scope`, checked before clarify |
+| `t_missing` | 0.60 | clarify — one named question; beats an *uncertain* out-of-scope redirect |
+| `t_confidence` | 0.50 | redirect — never guess on a low-confidence choice |
+| `t_model_confidence` | 0.60 | the gate's model suggestion may be honoured (see the resolver below) |
+
 Fast paths are deterministic templates: measured ~1.2 s (the gate call is the
 only latency) and zero writer tokens. The missing-inputs criteria account for
 the copilot's standard defaults (contact cost, margin, depth, MDE, daily
 volume, a presented profit curve), so a concrete but budget-less request gets a
 brief with flagged assumptions instead of a question back. When the API is
 unreachable or refuses a question, a deterministic keyword router answers —
-its reduced accuracy is a documented offline floor, recorded per case.
+its reduced accuracy is a documented offline floor, recorded per case. The
+keyword router also *suggests* `dr-learner` when the question says "uplift" or
+"incremental"; the suggestion still goes through the resolver, never straight
+into a tool.
+
+### Choosing the answering model (the resolver)
+
+The gate's `model` answer is a *suggestion*; code, not the LLM, decides which
+registered artifact scores the plan. `packages/copilot/selection.py` applies,
+in order:
+
+1. **Manual pin** — a model named in the request must exist in the catalog and
+   be selectable in the current mode (`ValueError` → HTTP 422 otherwise).
+2. **Non-model-sensitive intents** — `explain` and `test_design` always answer
+   from the champion ("default"): segment rules and sizing do not change with
+   the ranking model.
+3. **Gate choice** — for `plan`/`what_if`, the gate's suggestion is honoured
+   only when confidence ≥ `t_model_confidence` (0.60), the model is on the
+   mode's allow-list, and the artifact is actually registered. Otherwise →
+4. **Champion fallback** — always a valid answer, with the selector recorded
+   (`manual` / `default` / `gate` / `fallback`) in the package and as a trace
+   tag (`model.selector`), so an answer's provenance is auditable.
+
+A refusal or `none` on the `model` question is absorbed (the route stays
+usable); a refusal on a *core* question still poisons the route. Research Mode
+(`configs/copilot.yaml` allow-lists per mode) is what keeps the weak S/T/X and
+forest models out of normal answers — the prompt carries the same instruction,
+but code enforces it. Each tool run tags the trace with `ml.model`,
+`ml.score_kind` and `research.mode`; a ranked scenario row is always named
+`"<model label> ranking"`, and every row matcher keys on the ` ranking`
+suffix — adding a learner never breaks the null/target-all comparisons.
 
 ### Scenario extraction (the planner)
 
@@ -431,9 +470,10 @@ Rule-based parsing, never the LLM: USD amounts (`$`, commas, `k` suffix),
 cost-vs-budget disambiguation near cost words, depth percentages, MDE in
 percentage points, daily volume. Every filled default lands in
 `assumptions_used`; every unstated money field in `missing_fields`. The planner
-dispatches the intent to the Day-4 tools over a **cached holdout context**
-(champion + split rebuilt once per process; the policy tree fitted lazily on
-first use). What-if deltas are computed in code, not prose.
+dispatches the intent to the Day-4 tools over a **per-model holdout context**
+(the split is built once per process and shared; each registered model's scores
+are computed once and cached, so the first request naming a model pays the
+model's load + scoring). What-if deltas are computed in code, not prose.
 
 ### Writers
 
@@ -445,11 +485,17 @@ Pluggable behind one `write(request) -> DraftResult` interface:
   (`/v1/chat/completions`, no key); the configured default.
 - **neurometric** — `goal-setter` on the NEUROMETRIC gateway, Bearer auth.
 
-The prompt contract (version-stamped in the config): every number VERBATIM
-from the tool data and never *derived* (no count→share conversions, no
-relative-CI arithmetic), causal-care wording, USD only, exact section headers.
+The prompt contract (prompt version `v3`, stamped in the config): every number
+VERBATIM from the tool data and never *derived* (no count→share conversions,
+no relative-CI arithmetic), causal-care wording, USD only, exact section
+headers — and **rule 6**: never blur the answering model's score meaning. A
+response-probability ranking must not be narrated as an effect, and vice
+versa; the prompt receives a MODEL / SCORE-MEANING block with the canonical
+sentence for the model's `score_kind` and the writer must keep schedule words
+("probability", "likelihood") and effect words (uplift, incremental effect)
+in their lanes.
 
-### Validation (V1–V4)
+### Validation (V1–V6)
 
 Deterministic code — tolerance from `configs/copilot.yaml`:
 
@@ -459,7 +505,9 @@ Deterministic code — tolerance from `configs/copilot.yaml`:
 | V2 units | USD only — ₹/INR/€/£/"lakh"/"crore" fail the brief |
 | V3 causal language | deny-list ("will buy", "guaranteed", "because they are", …) + interval phrasing required when a tool output carries an interval |
 | V4 sections | every header for the intent must appear as a markdown heading at line start |
+| V6 score semantics | the answering model's `score_kind` gates the vocabulary: an effect phrase under a `response_probability` score (or a schedule phrase under an effect score) fails *unless* the prose explicitly contrasts them ("not a probability", "rather than an effect estimate", …). Disabled when a draft carries no score kind |
 
+(Rule IDs follow the shipped validator; there is no V5.)
 A failing draft gets **one rewrite** with the error list attached; if the final
 draft still fails, the prose ships with explicit `[UNVERIFIED: rule — detail]`
 flags and `degraded=True` — the reader sees exactly what could not be verified.
@@ -478,10 +526,14 @@ owning rule.
 
 Every request opens one MLflow GenAI trace in the `smartspend` experiment:
 `copilot` (root) with child spans for `decision_llm` (the gate model, its
-`state`, and the three named questions), `plan`, each Day-4 tool, and
+`state`, and the four named questions), `plan`, each Day-4 tool, and
 `write_validate` → `response_llm_attempt_*` (the exact system/user messages)
 or `response_writer_attempt_*` (the deterministic template) /
-`validate_attempt_*`. Spans carry the inputs/outputs (route confidence,
+`validate_attempt_*`. The tool spans carry the resolved model: tags
+`ml.model` and `ml.score_kind`, `model.selector` (`manual` / `default` /
+`gate` / `fallback`) and `research.mode`, so the audit view answers "which
+registered learner produced these numbers, and who chose it — the user, the
+gate, or the fallback?". Spans carry the inputs/outputs (route confidence,
 scenario, tool results, prompt messages, draft tokens, validator checks and
 citations; provenance-only fields such as `get_model_card.data_sha256` are
 omitted from the narration payload and tool span); attributes
@@ -500,27 +552,62 @@ files are written. Tracing is best-effort and can be disabled with
 The frontend (`apps/web`, launched by `npm run start` at the repo root) is a React
 planner for the Day-4 decision layer and the Day-5 copilot: budget slider, profit
 curve with a draggable depth marker, segment rule cards, test-design grid, copilot
-chat, and CSV export of the recommended targeting plan.
+chat, and CSV export of the recommended targeting plan. A **header model pill** on
+every page shows which model is answering and switches it (and Research Mode)
+without leaving the page you are on; the copilot page carries a **pipeline graph**
+in its right rail.
 
-- **Live API, no fallback data.** Pages read `GET /api/v1/overview` (profit curve,
-  scenario comparison, segment profile, MDE grid, model card) and the copilot posts
-  `POST /api/v1/copilot`; the header badge polls `GET /health` and shows `api offline`
-  rather than stale numbers. The overview is computed once per API process from the
-  registered champion's seed-42 holdout; boot warms the one expensive piece (a ~20 s
-  `DRPolicyTree` fit) in a background thread, then the payload is cached. A retrained
-  champion is picked up by restarting the API. The only snapshot in the repo is
-  `apps/web/tests/overview.json`, a unit-test fixture the shipped app never imports.
-- **The LLM is one box in a five-stage pipeline.** The Copilot page's collapsible
-  "LLM architecture" panel mirrors the code: **gate** (Azure Decisions API classifies
-  intent plus three probabilities; keyword router on failure), **plan** (Python rules
-  extract budget/cost/MDE; defaults flagged), **tools** (deterministic
-  `packages.decision` calls on the holdout), **write** (the LLM narrates the tool
-  outputs; template floor on failure), **validate** (V1 number trace, V2 units, V3
-  causal language, V4 sections; one rewrite). The writer selector sends `provider`
-  with the request (`template`, `ollama`, `neurometric`); the model never computes a
-  number. Azure credentials are loaded from `.env` into `os.environ` when the API is
-  imported, because the gate client reads the environment directly (as the eval
-  runner does).
+- **Live API, no fallback data.** Pages read `GET /api/v1/overview?model=…&research_mode=…`
+  (profit curve, scenario comparison, segment profile, MDE grid, model card) and the
+  copilot posts `POST /api/v1/copilot`; the header badge polls `GET /health` and shows
+  `api offline` rather than stale numbers. The overview is computed per process for the
+  model selected in the **header pill** (champion unless you pick another; the Model
+  lab is the same switch, spelled out); each model's
+  payload is cached separately, and boot warms the champion (the one expensive piece —
+  a ~20 s `DRPolicyTree` fit) in a background thread. A retrained model is picked up by
+  restarting the API. The only snapshot in the repo is `apps/web/tests/overview.json`,
+  a unit-test fixture the shipped app never imports.
+- **Plain language is a layer, not a rewrite.** `src/lib/plain-terms.ts` holds the
+  glossary; `<Term>` renders unavoidable nouns (MDE, holdout, seed 42, Qini, CI,
+  uplift, score kind) with a plain-English tooltip, and `<ToolChip>` renders a decision
+  tool's name (`optimize_budget`, `design_ab_test`, …) as muted mono provenance with
+  its plain job. The rule everywhere: **the plain sentence carries the meaning, the
+  technical name is the annotation** — labels change, numbers never (every figure on
+  screen still comes from a payload field).
+- **Switching the model never restarts the page.** The overview query keeps the
+  outgoing payload mounted (`placeholderData`) while the next model's payload is
+  fetched, so the page does not collapse to a skeleton and the reader's scroll
+  position is pinned (`usePreserveScrollDuringSwap`; CSS scroll anchoring is
+  suspended for the swap, and a wheel/touch/key during the swap wins over the
+  restore). An opaque veil (`SwitchVeil`) covers the outgoing numbers for the moment
+  the swap takes — old numbers are never shown under the new model's name, and a
+  cold model still shows the first-load skeleton because there is nothing to keep.
+- **The planner has exactly one lever.** Spend, targeting depth and contact count are
+  three units of the same knob, so the budget card offers both a money slider and a
+  depth slider (two-way, one `<RangeSlider>` each: filled track, knob, tick captions
+  — no clipped labels), quick-spend chips, a derived read-out (contacts, extra
+  conversions, profit, 95% band) and the honest limit — the curve stops at half the
+  holdout, so money past ≈$426 buys no more depth. Cost, margin and value per
+  conversion are **not** editable client-side (the curve is priced server-side from
+  `configs/business_assumptions.yaml`); the re-pricing path is a what-if question to
+  the copilot, linked from the card.
+- **The LLM is one box in a five-stage pipeline.** The Copilot page's right rail draws
+  that pipeline as a **graph** — one node per stage with a plain caption and the
+  engine that runs it; the active node pulses while a question is in flight, and the
+  per-stage timings after it are the API's own `stage_latencies` (`gate`, `plan`, and
+  `write_validate` — write and validate are timed together, and the tools stage is
+  reported as a tool-run count). Behind the graph's "full text" disclosure sits the
+  original prose, which mirrors the code: **gate** (Azure Decisions API classifies
+  intent plus the probabilities *including* a model suggestion; keyword router on
+  failure), **plan** (Python rules extract budget/cost/MDE; defaults flagged), **tools**
+  (deterministic `packages.decision` calls on the selected model's holdout), **write**
+  (the LLM narrates the tool outputs; template floor on failure), **validate** (V1
+  number trace, V2 units, V3 causal language, V4 sections, V6 score semantics; one
+  rewrite). The writer selector sends `provider` with the request (`template`,
+  `ollama`, `neurometric`), and a model pin (`Auto` or any registered learner) sends
+  `model`; the model never computes a number. Azure credentials are loaded from `.env`
+  into `os.environ` when the API is imported, because the gate client reads the
+  environment directly (as the eval runner does).
 - **Verdict shapes (question taxonomy)** — the copilot answers in one of four
   verdicts: `brief`, `clarify` (one question back, nothing granted), `decline`
   (policy refusal), `redirect` (off-scope). The Copilot page's "what can I ask"
@@ -529,14 +616,80 @@ chat, and CSV export of the recommended targeting plan.
   verbatim seed question, sent to the live pipeline when clicked (the chip shows the
   verdict it targets; the answer shows the verdict the gate returned).
 
-- **Model audit (Day 6)** — only the champion (response baseline, seed 42) is
-  persisted as `joblib` + provenance sidecar via `pipelines/train.py`. The
-  S/T/X/DR learners and causal forest were trained in notebooks 02/03 for the
-  benchmark but never saved (re-trainable via `train.py --learner …`); the
-  policy tree is refit on demand in `HoldoutContext.segment_profile` and is
-  deterministic. MLflow tracking is therefore limited to the champion's
-  metadata plus GenAI traces — the full benchmark history is not reconstructable
-  from the store (its numbers live in the ledger below).
+- **Model lab** — the `/models` route lists the whole catalog (§9): tier badge,
+  score kind, a one-line "use when", per-model seed-42 metrics and a comparison
+  table scored on the *same* test rows. Selecting a model re-keys the whole app
+  (planner, segments, test-design all answer from that model) via
+  `useModelSettings` (localStorage `smartspend-model`, `smartspend-research-mode`);
+  research-only learners are visibly locked — a toast names the off switch — and
+  the Research Mode toggle in the lab and in the header pill flips the catalog's
+  `selectable` flags live. The **header pill** is the global switcher: it is on every
+  page, lists the catalog with the research tiers locked, carries the Research Mode
+  toggle, and snaps back to the champion if Research Mode is switched off while a
+  research-only model is held (`src/lib/model-actions.ts` holds the shared guards
+  and toasts, so the pill and the lab behave identically). A research-only pick is
+  restored on reload only when Research Mode survived it; a missing artifact
+  degrades honestly to the load error. Unknown model → 404 page state; nothing is
+  invented when the API is offline.
+
+- **Model audit (Day 6)** — all six catalog learners are persisted as
+  `joblib` + provenance sidecars via `pipelines/train_all.py` (`models/` is
+  git-ignored; sidecars must carry the five semantics fields — tier, score
+  kind, intervals, research-only, use case — or the loader refuses). The
+  policy tree is refit on demand in `HoldoutData.segment_profile` and is
+  deterministic. `pipelines/log_mlflow.py` backfills one MLflow run per model
+  per meta digest (idempotent; re-running returns the same six ids).
+
+---
+
+## 9. Model catalog — six registered learners, one resolver
+
+The single source of serving truth is `packages/causal/catalog.py`: one
+`ModelSpec` per artifact — name, learner, display label, tier, `score_kind`,
+interval support, research-only flag and a one-line use case. `pipelines/train_all.py`
+trains exactly the catalog (idempotent: existing valid artifacts are skipped) and
+securing the sidecar is the registry's job: `models/<name>.joblib` +
+`models/<name>.meta.json` (git-ignored, wiped by `npm run delete`). A sidecar
+missing any of the five semantics fields (tier, score_kind, supports_intervals,
+research_only, use_case) **cannot load** — the copilot must know what a score
+means, never guess. `label` is deliberately optional (the catalog supplies it).
+
+| Name | Tier | Learner | Score kind (`score_kind`) | Intervals | Research-only | Use when |
+| --- | --- | --- | --- | --- | --- | --- |
+| `champion` (Response baseline) | champion | response classifier | `response_probability` — P(visit \| treated) | no | no | budget plan, general spend; ranking a "sure-thing" list on purpose |
+| `dr-learner` (DR uplift learner) | challenger | `dr` (linear DR) | `uplift_effect` | no | no | effect answers; a *statistical tie* with the champion on the 10-seed benchmark |
+| `s-learner` (S-learner (meta)) | research | `s` | `relative_uplift` | no | yes | only under Research Mode — Qini inside random noise on the benchmark |
+| `t-learner` (T-learner (meta)) | research | `t` | `relative_uplift` | no | yes | only under Research Mode — benchmarked statistically at random |
+| `x-learner` (X-learner (meta)) | research | `x` | `relative_uplift` | no | yes | only under Research Mode — benchmarked statistically at random |
+| `causal-forest` (Causal forest) | research | forest (GRF-style) | `uplift_effect_interval` | **yes** | yes | effect *ranges* under Research Mode; intervals are uncertainty, not promises |
+
+Serving rules the API inherits (all model-aware routes share them):
+unknown name → **404** naming the catalog; a research-only model without
+`research_mode=true` → **422** naming the allow-list; `/api/v1/models` lists the
+*whole* catalog with a per-mode `selectable` flag (research rows are listed and
+locked, never hidden); `/api/v1/models/compare` scores every *registered*
+artifact once on the same seed-42 test rows; `/api/v1/models/{name}` serves the
+card; `/api/v1/overview`, `/api/v1/segments/*` accept `model` (+
+`research_mode`). The copilot resolver (§7) admits only registered,
+allow-listed models — normally champion + `dr-learner`, the full catalog under
+Research Mode.
+
+### A note on numbers (read this before quoting any table)
+
+Two families of metrics live in this file and they answer different questions —
+**never mix them:**
+
+- **The 10-seed benchmark envelope** (Day 3, below) is the performance of
+  *record* for selection: means ± std over seeds 0–9, use it to claim which
+  model is better.
+- **The registered artifacts' seed-42 sidecar metrics** (Day 4/6, below) are
+  what each deployed artifact *posts on file* — one split, the split every app
+  tool reproduces to the cent. Use them to audit the artifact, to sanity-check
+  the app, or to compare served models on the *same rows* (the Model lab's
+  comparison table). They are noisier and smaller than an envelope; that is
+  expected, not a regression.
+
+---
 
 ## Findings ledger
 
@@ -710,6 +863,29 @@ uniform reference $435.35 = $0.170/contact). Qini/uplift reproduce notebook
 04's single-split row exactly — the artifact traces to the ledger; the honest
 performance envelope remains the 10-seed benchmark ($569 ± 239).
 
+**Registered catalog** — `pipelines/train_all.py` trains and registers all six
+§9 learners; each sidecar posts its seed-42 metrics (the split every app tool
+uses). These are **artifact-on-file, single-split numbers** — for auditing the
+deployed artifacts and powering the Model lab's same-rows comparison, *not* a
+replacement for the 10-seed envelope above:
+
+| Registered artifact (seed 42 sidecar) | Qini AUC | profit @30% | $/contact |
+| --- | --- | --- | --- |
+| champion | 0.0199 | **$857.60** | $0.335 |
+| dr-learner | 0.0081 | $723.98 | $0.283 |
+| s-learner | 0.0069 | $194.04 | $0.076 |
+| t-learner | 0.0201 | −$70.69 | −$0.028 |
+| x-learner | 0.0236 | $441.84 | $0.173 |
+| causal-forest | 0.0193 | $802.63 | $0.314 |
+
+Same story as Day 3's single split (the sidecars reproduce its Qini rows),
+seen through the profit lens: the response champion leads on dollars on this
+split even though X's Qini looks best, and the causal forest — gated behind
+Research Mode for benchmark reasons — lands a solid second in dollars ($802.63)
+ahead of the DR challenger. The weak research tiers (S, T) sit where the
+benchmark put them; T's negative profit here is exactly why it is not allowed
+to answer a real campaign without Research Mode.
+
 **Stratification visibility** (`split_balance_report`): SMD
 0.2191/0.2191/0.2195 across train/val/test; converter shares per arm
 0.64/0.16/0.20 exactly. `stratify_extra=conversion` is a **no-op on
@@ -822,14 +998,15 @@ are spread across repeated live runs on the same day.
 | Seed eval — latency | p50 4.93 s, p95 9.45 s |
 | Torture test (5 hand-corrupted drafts) | 5/5 caught, each by the owning rule |
 | Provider verdict | ollama is the default writer (passes V1–V4 at ~3.6 s); `neurometric/goal-setter` fails V1+V3 on the same brief (derived numbers, causal overclaims, 850 words) — the gateway needs a general-purpose model; the template is the always-on floor |
-| Copilot tests | 64 (175 repo-wide) |
+| Gate prompt version | these rows were measured on v2 (three questions); **v3** added the fourth `model` question to the same call (resolver + `t_model_confidence` 0.60), otherwise no threshold changed |
+| Copilot tests | 108 across copilot/provide/selection/V6 test modules (236 repo-wide, +1 env-gated skip) |
 
 Day-5 finding table:
 
 | Finding | Evidence |
 | --- | --- |
 | The gate routes the labelled taxonomy perfectly — once calibrated | Fast-path 1.00 on all three live runs *after* the questions were reworded: the first draft over-fired `missing_inputs` on 6 of 9 brief cases (0.533 accuracy) because the criteria ignored the copilot's documented defaults |
-| One API call, three questions, ~1.2 s | The whole fast-path budget is the gate call; redirect/decline/clarify spend zero writer tokens |
+| One API call, three questions, ~1.2 s | The whole fast-path budget is the gate call; redirect/decline/clarify spend zero writer tokens. (v3 later made it four questions — same call, see the version row above.) |
 | The validator is the safety lever, and it earns it | 5/5 torture mutations caught by the owning rule; live first drafts fail V1 often enough (0.44–0.78 pass@1) that the rewrite loop is load-bearing, not decoration |
 | LLM drafts fail V1 for *typography*, not lies | "2 443 contacts" (U+202F) and "‑$155.64" (U+2011 hyphen) cite real tool numbers; normalizing before extraction fixed most live first-draft failures |
 | Deriving numbers is the remaining failure mode | gpt-oss converts counts to shares and intervals to relative percentages; prompt v2 forbids it, and the rewrite with the error list usually lands it |
@@ -840,12 +1017,12 @@ Day-5 finding table:
 
 | Insight | Evidence |
 | --- | --- |
-| The planner UI computes, it does not replay | `GET /api/v1/overview` runs `optimize_budget` + `compare_scenarios` + `get_segment_profile` + `design_ab_test` on the champion's holdout once per API process; the Day-4 figures still match the ledger to the cent ($857.60 profit at 30% depth, break-even mark 2%). The payload is cached after boot's ~20 s policy-tree warm-up. |
-| The app exercises the real gate, not a stand-in | Loading `.env` into `os.environ` flipped `/api/v1/copilot` from `router: keyword_fallback` to `router: decisions` (gate ≈1.3 s). The writer selector exposes template / ollama / neurometric; one live ollama explain run took 29.1 s and two drafts and still passed V1–V4, while a failing LLM degrades to the template. |
+| The planner UI computes, it does not replay | `GET /api/v1/overview` runs `optimize_budget` + `compare_scenarios` + `get_segment_profile` + `design_ab_test` on whichever registered model you selected in the Model lab (per-model cache; champion by default). The champion's Day-4 figures still match the ledger to the cent ($857.60 profit at 30% depth, break-even mark 2%). Boot warms the champion's ~20 s policy tree in the background. |
+| The app exercises the real gate, not a stand-in | Loading `.env` into `os.environ` flipped `/api/v1/copilot` from `router: keyword_fallback` to `router: decisions` (gate ≈1.3 s). The writer selector exposes template / ollama / neurometric and a model pin (Auto → gate, or a named registered learner); one live ollama explain run took 29.1 s and two drafts and still passed V1–V4, while a failing LLM degrades to the template. |
 | One command boots the app | `npm run start` → `scripts/start_app.sh`: mise-pinned node 22/pnpm 10, installs web deps when missing, starts FastAPI :8000, health-checks it, then Vite :5173, with trap cleanup on exit. The script is re-runnable: it frees a stale SmartSpend listener, reuses a healthy stack, refuses a foreign port holder, and Vite runs `strictPort` so :5173 never silently becomes :5175. |
-| MLflow tracks the champion and every copilot request | MLflow 3.17 with a local SQLite store (`data/mlflow/mlflow.db`) holding run metadata and GenAI traces; **no artifacts** are logged (the champion joblib/provenance stay in `models/`). `pipelines/log_mlflow.py` backfills the champion, and each `/api/v1/copilot` call becomes a trace with `copilot → decision_llm → plan → tools → response_llm → validate` spans, correlated to the app's `trace_id` via `client_request_id`. The UI's **GenAI → Traces** view is the audit surface; the old file store was migrated once (17 runs) and `npm run mlflow` serves the SQLite store. The old setuptools <71 / protobuf <5 pins were 1.27-only and were dropped. |
-| Model audit | Only the champion (response baseline, seed 42) is persisted; S/T/X/DR/forest trained in notebooks but not saved (re-trainable via `train.py --learner`); policy tree refit on demand. MLflow backfill limited accordingly. |
-| Day-6 eval (46 cases) | fast_path 0.913, intent 1.000, tool-call 1.000, validator pass@1 1.000, p50 1.15s (template writer, live gate). Ablation: keyword fallback 0.739 / 0.844 / 0.800 / 0.00s — router earns its place (+0.174 fast-path, +0.200 tools, +1.15s). |
+| MLflow tracks six registered models and every copilot request | MLflow 3.17 with a local SQLite store (`data/mlflow/mlflow.db`) holding run metadata and GenAI traces; **no artifacts** are logged (the joblib/provenance files stay in `models/` as the load-path code of record). `pipelines/log_mlflow.py` backfills one run per model per meta digest — idempotent, re-running returns the same six ids — and each `/api/v1/copilot` call becomes a trace whose tool spans carry `ml.model`, `ml.score_kind`, `model.selector` and `research.mode`, correlated to the app's `trace_id` via `client_request_id`. The UI's **GenAI → Traces** view is the audit surface. |
+| Model audit | All six §9 learners are registered artifacts (`pipelines/train_all.py`, idempotent; `models/` git-ignored, wiped by `npm run delete`); the sidecars must carry the five semantics fields or the loader refuses. The policy tree is refit on demand and deterministic; MLflow backfill dedupes on provenance. |
+| Day-6 eval (46 cases) | fast_path 0.913, intent 1.000, tool-call 1.000, validator pass@1 1.000, p50 1.15s (template writer, live gate). Ablation: keyword fallback 0.739 / 0.844 / 0.800 / 0.00s — router earns its place (+0.174 fast-path, +0.200 tools, +1.15s). Measured on the three-question gate (v2); the model question rides the same call. |
 
 ### Profit formula
 

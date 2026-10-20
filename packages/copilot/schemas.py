@@ -46,12 +46,20 @@ BRIEF_SECTIONS: dict[Intent, tuple[str, ...]] = {
 
 
 class Route(BaseModel):
-    """Gate output: the routed intent plus the two gate probabilities."""
+    """Gate output: the routed intent plus the gate probabilities.
+
+    ``model_choice`` is the gate's *suggestion* for the ranking model — the
+    resolver (never the gate itself) turns it into the model that runs. It is
+    ``None`` whenever the model question was unanswered, refused, or offered
+    with confidence under ``RouterConfig.t_model_confidence``.
+    """
 
     intent: Intent
     intent_confidence: float = Field(ge=0.0, le=1.0)
     policy_risk: float = Field(ge=0.0, le=1.0)
     missing_inputs: float = Field(ge=0.0, le=1.0)
+    model_choice: str | None = None
+    model_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     router: Literal["decisions", "keyword_fallback"] = "decisions"
     answers: dict[str, Any] = Field(
         default_factory=dict, description="Raw gate answers, kept verbatim for the trace."
@@ -104,6 +112,11 @@ class DraftRequest(BaseModel):
     question: str
     scenario: CampaignScenario
     tool_runs: list[ToolRun]
+    #: The ranking model in play and what its score means — the prompt states
+    #: these explicitly so a probability score is never narrated as an effect.
+    model_name: str | None = None
+    model_label: str | None = None
+    score_kind: str | None = None
     retry_errors: list[str] = Field(
         default_factory=list, description="Validator failures from the previous draft (T5 retry)."
     )
@@ -171,6 +184,31 @@ class BriefPackage(BaseModel):
     router: Literal["decisions", "keyword_fallback"] = Field(
         default="decisions", description="Gate that produced the route (live or keyword)."
     )
+    #: Which ranking model answered, how it was chosen, and what its score is.
+    #: ``None``/absent on fast paths (decline/redirect/clarify pick no model)
+    #: and on packages built before the multi-model era.
+    model_name: str | None = None
+    model_label: str | None = None
+    model_learner: str | None = None
+    model_tier: str | None = None
+    score_kind: str | None = None
+    model_selector: Literal["gate", "manual", "fallback", "default"] | None = Field(
+        default=None,
+        description=(
+            "gate = confident gate choice; manual = user pin; fallback = gate "
+            "unsure/below threshold → champion; default = intent is not "
+            "model-sensitive (explain/test-design → champion)."
+        ),
+    )
+    model_confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Gate confidence for the model choice (None for manual/fallback/default).",
+    )
+    research_mode: bool = Field(
+        default=False, description="True when research-only models were selectable."
+    )
     draft_attempts: int = Field(
         default=1, description="Drafts made before this one (0-based retry count)."
     )
@@ -189,12 +227,15 @@ class RouterConfig(BaseModel):
 
     Applied by :func:`packages.copilot.router.decide_fast_path` in order:
     decline > confident out_of_scope redirect > clarify > cautious redirect > brief.
+    ``t_model_confidence`` gates the model question: a suggestion below it
+    falls back to the champion instead of switching models.
     """
 
     t_policy_risk: float = Field(default=0.70, ge=0.0, le=1.0)
     t_missing: float = Field(default=0.60, ge=0.0, le=1.0)
     t_confidence: float = Field(default=0.50, ge=0.0, le=1.0)
     t_oos_confidence: float = Field(default=0.90, ge=0.0, le=1.0)
+    t_model_confidence: float = Field(default=0.60, ge=0.0, le=1.0)
 
 
 class PlannerConfig(BaseModel):

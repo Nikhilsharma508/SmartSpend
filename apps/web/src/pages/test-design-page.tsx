@@ -18,8 +18,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Term, ToolChip } from "@/components/term"
+import { SwitchVeil } from "@/components/switch-veil"
 import { LoadError } from "@/components/load-error"
 import { useOverview } from "@/hooks/use-overview"
+import { usePreserveScrollDuringSwap } from "@/hooks/use-preserve-scroll"
 import { intFmt, rateFmt } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -31,7 +34,10 @@ const MDE_LABELS: Record<string, string> = {
 }
 
 export default function TestDesignPage() {
-  const { data: fx, isPending, isError, error } = useOverview()
+  const { data: fx, isPending, isError, error, isPlaceholderData, switchingLabel } =
+    useOverview()
+  // a model swap must not move the reader
+  usePreserveScrollDuringSwap(isPlaceholderData)
   const [chosenMde, setChosenMde] = useState(0.01)
 
   if (isPending) {
@@ -44,17 +50,22 @@ export default function TestDesignPage() {
   const design = designs.find((d) => Math.abs(d.mde_absolute - chosenMde) < 1e-9) ?? designs[1]!
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Test design</h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{design.note}</p>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+          How big a hold-out test you need before the next campaign — pick the{" "}
+          <Term k="mde">smallest lift worth noticing</Term>, get the customers per arm
+          and the run days. {design.note}
+        </p>
       </div>
 
       {/* MDE picker */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <FlaskConical className="size-3.5" /> minimum detectable effect (
-          {rateFmt(design.alpha, 0)} alpha · {Math.round(design.power * 100)}% power)
+          <FlaskConical className="size-3.5" />{" "}
+          <Term k="mde">smallest lift worth noticing (MDE)</Term> ·{" "}
+          {rateFmt(design.alpha, 0)} false-positive rate · {Math.round(design.power * 100)}% power
         </span>
         <div className="flex rounded-full border border-border/60 bg-muted/40 p-1">
           {designs.map((d) => {
@@ -91,7 +102,7 @@ export default function TestDesignPage() {
           format={(n) => intFmt(n)}
           sub={`both arms · total ${intFmt(design.n_total)}`}
           accentClass="bg-primary"
-          hint="Two-proportion test sizing at the chosen MDE against the baseline visit rate."
+          hint="Half your test shows the new offer, half shows the current one — this is the number each side needs."
         />
         <KpiCard
           label="duration"
@@ -99,7 +110,7 @@ export default function TestDesignPage() {
           format={(n) => `${Math.ceil(n)} days`}
           sub={`at ${intFmt(design.daily_eligible)} eligible/day`}
           accentClass="bg-amber-400"
-          hint="Randomization unit is the customer; allocation 50/50."
+          hint="Customers are randomized one by one into the two arms (50/50), so the calendar simply fills up."
         />
         <KpiCard
           label="baseline visit rate"
@@ -107,7 +118,7 @@ export default function TestDesignPage() {
           format={(n) => rateFmt(n, 2)}
           sub={`MDE ${(design.mde_relative * 100).toFixed(0)}% relative`}
           accentClass="bg-[var(--color-profit)]"
-          hint={`Champion-model customers (seed-42 holdout), alpha ${design.alpha}, power ${design.power}.`}
+          hint="How often customers visit without any new offer — measured on the same holdout the models are scored on (seed 42)."
         />
       </div>
 
@@ -115,9 +126,11 @@ export default function TestDesignPage() {
         {/* all four designs */}
         <Card className="border-border/60 bg-card/70 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-base">The grid the tool produces</CardTitle>
-            <CardDescription>
-              design_ab_test rows at alpha 0.05, power 0.8 — pick per business stakes
+            <CardTitle className="text-base">All four test sizes</CardTitle>
+            <CardDescription className="flex flex-wrap items-center gap-x-1.5">
+              four priced rows from <ToolChip name="design_ab_test" />
+              <span className="font-mono text-[10.5px]">alpha 5% · power 80%</span> —
+              pick by how much a miss would cost you
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -183,6 +196,9 @@ export default function TestDesignPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* keep the outgoing page mounted while the next model's numbers load */}
+      <SwitchVeil show={isPlaceholderData} label={switchingLabel} />
     </div>
   )
 }

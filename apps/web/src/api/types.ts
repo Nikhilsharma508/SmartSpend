@@ -89,15 +89,74 @@ export interface AbTestDesign {
 export interface ModelCard {
   name: string
   learner: string
+  label: string
   target: string
   trained_at: string
   train_rows: number
   data_sha256: string
   metrics: Record<string, number>
   assumptions: Assumptions
+  tier: string
+  score_kind: string
+  supports_intervals: boolean
+  research_only: boolean
+  use_case: string
   fairness_note: string
   when_not_to_use: string[]
   limitations: string[]
+}
+
+/** One row of the model catalog (GET /api/v1/models). */
+export interface ModelDescriptor {
+  name: string
+  label: string
+  learner: string
+  tier: string
+  score_kind: string
+  supports_intervals: boolean
+  research_only: boolean
+  use_case: string
+  warning: string | null
+  registered: boolean
+  selectable: boolean
+  added_to_allow_list_by_mode: boolean
+  trained_at: string | null
+  seed42_metrics: Record<string, number> | null
+  meta_error: string | null
+}
+
+export interface ModelCatalog {
+  default: string
+  research_mode: boolean
+  models: ModelDescriptor[]
+  score_meanings: Record<string, string>
+}
+
+/** One row of the model comparison (GET /api/v1/models/compare). */
+export interface ModelComparisonRow {
+  name: string
+  label: string
+  learner: string
+  tier: string
+  score_kind: string
+  supports_intervals: boolean
+  research_only: boolean
+  use_case: string
+  warning: string | null
+  qini_auc: number
+  uplift_at_k: number
+  incremental_conversions_at_k: number
+  profit_at_k_usd: number
+  profit_per_contact_usd: number
+  n_test: number
+  trained_at: string
+  benchmark_warning: string | null
+}
+
+export interface ModelComparison {
+  rows: ModelComparisonRow[]
+  note: string
+  score_meanings: Record<string, string>
 }
 
 export type IntentStr =
@@ -144,6 +203,8 @@ export interface ScenarioFields {
   missing_fields: string[]
 }
 
+export type ModelSelectorStr = "gate" | "manual" | "fallback" | "default"
+
 export interface CopilotPackage {
   question: string
   intent: IntentStr
@@ -158,6 +219,14 @@ export interface CopilotPackage {
   degraded: boolean
   provider: string
   router: "decisions" | "keyword_fallback"
+  model_name: string | null
+  model_label: string | null
+  model_learner: string | null
+  model_tier: string | null
+  score_kind: string | null
+  model_selector: ModelSelectorStr | null
+  model_confidence: number | null
+  research_mode: boolean
   draft_attempts: number
   trace_id: string
   latency_s: number
@@ -175,7 +244,14 @@ export interface Overview {
     n_test: number
     baseline_visit_rate: number
     feature_names: string[]
-    champion_random_state: number | null
+    model_name: string
+    model_label: string
+    learner: string | null
+    score_kind: string | null
+    tier: string
+    supports_intervals: boolean
+    research_only: boolean
+    model_random_state: number | null
     data_sha256: string | null
   }
   assumptions: Assumptions

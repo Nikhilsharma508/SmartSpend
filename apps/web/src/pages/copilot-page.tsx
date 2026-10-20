@@ -8,7 +8,6 @@ import {
   ListOrdered,
   Network,
   PenLine,
-  Plug,
   Route,
   ShieldCheck,
   Sparkles,
@@ -18,13 +17,16 @@ import AIPrompt from "@/components/kokonutui/ai-prompt"
 import AILoadingState, { type AgentStep } from "@/components/kokonutui/ai-loading"
 import AITextLoading from "@/components/kokonutui/ai-text-loading"
 import { StatusIsland, type IslandTask } from "@/components/kokonutui/status-island"
+import {
+  PipelineGraph,
+  type LastRunSummary,
+} from "@/components/copilot/pipeline-graph"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card"
 import {
   Tooltip,
@@ -33,8 +35,10 @@ import {
 } from "@/components/ui/tooltip"
 import { askCopilot, type WriterProvider } from "@/api/client"
 import type { CopilotPackage, FastPathStr, ValidationCheck } from "@/api/types"
+import { useModels } from "@/hooks/use-models"
 import { seconds, usd } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { useModelSettings } from "@/state/model-settings"
 
 /* ------------------------------------------------------------------ */
 
@@ -50,20 +54,37 @@ const FAST_PATH_STYLES: Record<FastPathStr, string> = {
   redirect: "border-border bg-muted text-muted-foreground",
 }
 
-const PIPELINE_STAGES = ["gate", "tools", "write", "validate"] as const
+/** Score kinds, in plain words (the canonical sentences live in the catalog;
+ * these are their shortened, user-facing renderings). */
+const SCORE_KIND_PLAIN: Record<string, string> = {
+  response_probability:
+    "a response probability — how likely this customer responds if emailed. Ordering, not a causal effect.",
+  relative_uplift:
+    "a relative-uplift ranking score — ordering only, not a calibrated probability and not a dollar value.",
+  uplift_effect:
+    "an estimated incremental effect of the email (treated − control). Not a probability.",
+  uplift_effect_interval:
+    "an estimated incremental effect with an interval — uncertainty described, never promised.",
+}
 
+const PIPELINE_STAGES = ["gate", "plan", "tools", "write", "validate"] as const
+
+/** Plain-language stage labels for the loading indicator — technically
+ * accurate but readable ("routing your question", not "intent classification"). */
 const stageLabels: Record<string, string> = {
-  gate: "routing the question",
-  tools: "running decision tools",
-  write: "narrating the brief",
-  validate: "tracing every number",
+  gate: "routing your question",
+  plan: "collecting your inputs",
+  tools: "computing the numbers",
+  write: "writing the brief",
+  validate: "checking every number",
 }
 
 const stageDetails: Record<string, string> = {
-  gate: "intent + policy · missing · confidence",
-  tools: "profit curve · budget · segments · power",
+  gate: "your ask · policy risks · model choice",
+  plan: "budget · cost · test size · assumed defaults",
+  tools: "profit curve · scenarios · segments · test size",
   write: "the writer sees tool outputs only",
-  validate: "V1 numbers · V2 units · V3 causal · V4 sections",
+  validate: "every number traced to a tool output",
 }
 
 function pendingSteps(stage: number): AgentStep[] {
@@ -146,6 +167,29 @@ function VerdictRow({ pkg }: { pkg: CopilotPackage }) {
       <Badge className={cn("border text-[10px] capitalize", FAST_PATH_STYLES[pkg.fast_path])}>
         {pkg.fast_path}
       </Badge>
+      {pkg.model_label && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="outline"
+              className={cn(
+                "gap-1 text-[10px] normal-case",
+                pkg.model_tier === "research"
+                  ? "border-amber-400/40 bg-amber-400/10 text-amber-500 dark:text-amber-300"
+                  : "text-muted-foreground",
+              )}
+            >
+              {pkg.model_label}
+              {pkg.model_selector && ` · ${pkg.model_selector}`}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-72">
+            {pkg.score_kind
+              ? `${pkg.score_kind} — ${SCORE_KIND_PLAIN[pkg.score_kind] ?? "the model's score kind"}`
+              : "answering model"}
+          </TooltipContent>
+        </Tooltip>
+      )}
       <Badge variant="outline" className="gap-1 font-mono text-[10px] normal-case text-muted-foreground">
         {seconds(pkg.latency_s)} · {pkg.router.replace("_", " ")}
       </Badge>
@@ -271,7 +315,7 @@ const ARCHITECTURE = [
     icon: Route,
     name: "Gate — route the question",
     engine: "LLM classifier · Decisions API",
-    copy: "Classifies intent and returns three probabilities: policy risk, missing inputs and confidence. Thresholds live in configs/copilot.yaml. If the API is unreachable, a deterministic keyword router takes over and says so in the trace.",
+    copy: "Classifies intent and returns four probabilities: policy risk, missing inputs, confidence and a model suggestion. Thresholds live in configs/copilot.yaml; the resolver (code, not the LLM) applies the allow-list and falls back to the champion. If the API is unreachable, a deterministic keyword router takes over and says so in the trace.",
   },
   {
     icon: ListOrdered,
@@ -283,7 +327,7 @@ const ARCHITECTURE = [
     icon: Calculator,
     name: "Tools — compute the numbers",
     engine: "packages.decision · deterministic",
-    copy: "optimize_budget, compare_scenarios, get_segment_profile, design_ab_test and get_model_card run on the champion's holdout. The LLM never computes or rounds a number.",
+    copy: "optimize_budget, compare_scenarios, get_segment_profile, design_ab_test and get_model_card run on the selected model's holdout (champion by default). The LLM never computes or rounds a number.",
   },
   {
     icon: PenLine,
@@ -295,72 +339,93 @@ const ARCHITECTURE = [
     icon: ShieldCheck,
     name: "Validate — trace every number",
     engine: "Python validator · no LLM",
-    copy: "V1 matches every printed number against a tool output (1% tolerance), V2 forbids non-USD units, V3 checks causal claims, V4 checks the required sections. One rewrite is allowed, then the answer is flagged UNVERIFIED.",
+    copy: "V1 matches every printed number against a tool output (1% tolerance), V2 forbids non-USD units, V3 checks causal claims, V4 checks the required sections, V6 keeps a probability score from being narrated as an effect (and vice versa). One rewrite is allowed, then the answer is flagged UNVERIFIED.",
   },
 ]
 
-function ArchitecturePanel() {
+/**
+ * The rail's "how it works" card: the pipeline as a graph (always visible),
+ * with the full text of the division of labour behind a disclosure. The title
+ * is a disclosure button; the graph itself needs no button.
+ */
+function PipelineRailCard({
+  activeStage,
+  lastRun,
+}: {
+  activeStage: number | null
+  lastRun: LastRunSummary | null
+}) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="rounded-2xl border border-border/70 bg-card/70 backdrop-blur-sm">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left"
-      >
-        <Network className="size-4 shrink-0 text-muted-foreground" />
-        <span className="text-sm font-medium">LLM architecture — how an answer is built</span>
-        <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">
-          gate · plan · tools · write · validate
-        </span>
-        <ChevronDown
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden"
-          >
-            <div className="space-y-3 border-t border-border/50 px-4 py-3">
-              {ARCHITECTURE.map((stage, i) => (
-                <div key={stage.name} className="flex gap-3">
-                  <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40">
-                    <stage.icon className="size-3.5 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0 text-[12px]">
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="font-medium">
-                        {i + 1} · {stage.name}
-                      </span>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {stage.engine}
-                      </span>
+    <Card className="border-border/60 bg-card/70 backdrop-blur-sm">
+      <CardHeader className="pb-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="group flex w-full items-center gap-2 text-left"
+        >
+          <Network className="size-4 shrink-0 text-muted-foreground" />
+          <span className="text-sm font-medium">
+            LLM architecture — how an answer is built
+          </span>
+          <span className="ml-auto hidden text-[10px] text-muted-foreground sm:inline">
+            full text
+          </span>
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+        <CardDescription className="pt-1">
+          the LLM does two jobs — routing and prose; every number is code
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <PipelineGraph activeStage={activeStage} lastRun={lastRun} />
+        <AnimatePresence initial={false}>
+          {open && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="space-y-3 border-t border-border/50 pt-3">
+                {ARCHITECTURE.map((stage, i) => (
+                  <div key={stage.name} className="flex gap-3">
+                    <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40">
+                      <stage.icon className="size-3.5 text-muted-foreground" />
                     </div>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                      {stage.copy}
-                    </p>
+                    <div className="min-w-0 text-[12px]">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-medium">
+                          {i + 1} · {stage.name}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {stage.engine}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                        {stage.copy}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
-              <p className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-                Division of labour: the LLM does two jobs — <strong>routing</strong> and{" "}
-                <strong>prose</strong>. Money, segments and validation are code. That is why
-                the validator can trace every number in the answer back to a tool run.
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+                ))}
+                <p className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                  Division of labour: the LLM routes and writes — money, segments and
+                  validation are code. That is why the validator can trace every number
+                  in the answer back to a tool run.
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -454,6 +519,9 @@ export default function CopilotPage() {
   const [pending, setPending] = useState<{ question: string; stage: number } | null>(null)
   const [openKind, setOpenKind] = useState<string | null>("plan")
   const [provider, setProvider] = useState<WriterProvider>("ollama")
+  const [modelPin, setModelPin] = useState<string>("")
+  const { researchMode } = useModelSettings()
+  const { data: catalog } = useModels()
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const lastPkg = useMemo(() => {
@@ -463,6 +531,19 @@ export default function CopilotPage() {
     }
     return null
   }, [messages])
+
+  /** The rail graph shows the last run's real shape: verdict, model, total
+   * latency and the API's own per-stage timings. */
+  const lastRunSummary = useMemo<LastRunSummary | null>(() => {
+    if (!lastPkg) return null
+    return {
+      verdict: lastPkg.fast_path,
+      modelLabel: lastPkg.model_label,
+      latencyS: lastPkg.latency_s,
+      toolRuns: lastPkg.tool_runs.length,
+      stageLatencies: lastPkg.stage_latencies ?? {},
+    }
+  }, [lastPkg])
 
   // keep the transcript pinned to the latest entry
   useEffect(() => {
@@ -489,7 +570,12 @@ export default function CopilotPage() {
     setMessages((m) => [...m, { kind: "user", text: q }])
     setPending({ question: q, stage: 0 })
     try {
-      const pkg = await askCopilot(q, writer as WriterProvider, signal)
+      const pkg = await askCopilot(
+        q,
+        writer as WriterProvider,
+        { model: modelPin || null, researchMode },
+        signal,
+      )
       setMessages((m) => [...m, { kind: "assistant", pkg }])
     } catch (err) {
       const e = err as Error
@@ -513,7 +599,7 @@ export default function CopilotPage() {
         {
           id: "copilot-run",
           label: pending.question,
-          detail: stageLabels[PIPELINE_STAGES[Math.min(pending.stage, 3)]!],
+          detail: stageLabels[PIPELINE_STAGES[Math.min(pending.stage, PIPELINE_STAGES.length - 1)]!]!,
           status: "running",
           progress: pending.stage / PIPELINE_STAGES.length,
         },
@@ -530,19 +616,17 @@ export default function CopilotPage() {
       : []
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_19rem]">
+    <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
       {/* transcript + prompt column */}
-      <div className="flex min-h-[calc(100dvh-13rem)] flex-col gap-4">
+      <div className="flex flex-col gap-4 lg:min-h-[calc(100dvh-13rem)]">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Campaign copilot</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Gate → plan → write → validate, per request. Every answer is produced by the
-            live pipeline and every number is traced back to a tool output by the
-            validator.
+            Ask in plain words — a budget, a test size, a segment. The LLM only routes
+            your question and writes the brief; every number is computed and validated
+            by code (the graph in the rail shows exactly where).
           </p>
         </div>
-
-        <ArchitecturePanel />
 
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto pr-1">
           {messages.length === 0 && !pending && (
@@ -550,8 +634,8 @@ export default function CopilotPage() {
               <Bot className="size-5 text-muted-foreground" />
               <p className="text-sm font-medium">Ask about a budget, a test size, or the model.</p>
               <p className="max-w-md text-xs text-muted-foreground">
-                The answer comes from the live pipeline; the panel above shows where the LLM
-                sits and what code computes.
+                Answers come from the live pipeline; the graph in the rail shows where the
+                LLM sits and what code computes.
               </p>
             </div>
           )}
@@ -584,7 +668,7 @@ export default function CopilotPage() {
             <div className="space-y-3">
               <AILoadingState steps={pendingSteps(pending.stage)} collapseWhenDone={false} />
               <AnimatePresence>
-                {pending.stage >= 2 && (
+                {pending.stage >= 3 && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -592,7 +676,7 @@ export default function CopilotPage() {
                   >
                     <AITextLoading
                       texts={[
-                        "narrating champion profit…",
+                        "narrating the ranking's profit…",
                         "inserting verified numbers…",
                         "checking causal claims…",
                       ]}
@@ -609,7 +693,7 @@ export default function CopilotPage() {
         <div className="rounded-2xl border border-border/70 bg-card/70 p-3 backdrop-blur-sm">
           <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             <ListOrdered className="size-3" />
-            what can I ask — every verdict shape
+            what can I ask
           </p>
           <div className="flex flex-wrap gap-1.5">
             {QUESTION_KINDS.map((k) => {
@@ -671,6 +755,45 @@ export default function CopilotPage() {
 
         {/* prompt */}
         <div className="rounded-2xl border border-border/70 bg-card/70 p-2 backdrop-blur-sm">
+          {/* model pin — who computes the plan's numbers; the header pill shows
+              which model the other pages answer from */}
+          <div className="flex flex-wrap items-center gap-2 px-2 pb-1.5">
+            <label
+              htmlFor="copilot-model-pin"
+              className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground"
+            >
+              <Calculator className="size-3" />
+              model
+            </label>
+            <select
+              id="copilot-model-pin"
+              value={modelPin}
+              onChange={(e) => setModelPin(e.target.value)}
+              disabled={pending !== null}
+              className={cn(
+                "rounded-md border border-border/70 bg-background/60 px-2 py-1 text-[11px]",
+                "focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50",
+                modelPin && "border-primary/50",
+              )}
+            >
+              <option value="">auto — the copilot picks (champion if unsure)</option>
+              {(catalog?.models ?? [])
+                .filter((m) => m.registered && m.selectable)
+                .map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.label} ({m.tier})
+                  </option>
+                ))}
+            </select>
+            {researchMode && (
+              <Badge
+                variant="outline"
+                className="border-amber-400/40 bg-amber-400/10 text-[10px] text-amber-500 dark:text-amber-300"
+              >
+                research mode
+              </Badge>
+            )}
+          </div>
           <p className="px-2 pb-1 text-[10px] text-muted-foreground">
             writer provider is sent with the request; a failing LLM falls back to the
             template, never to invented numbers
@@ -688,65 +811,17 @@ export default function CopilotPage() {
         </div>
       </div>
 
-      {/* live run card */}
-      <div className="space-y-4">
-        <Card className="border-border/60 bg-card/70 backdrop-blur-sm">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Plug className="size-4 text-muted-foreground" />
-              <CardTitle className="text-sm">Last live run</CardTitle>
-            </div>
-            <CardDescription>
-              {lastPkg
-                ? `trace ${lastPkg.trace_id}`
-                : "Ask a question — the gate, tool runs and validator verdict land here."}
-            </CardDescription>
-          </CardHeader>
-          {lastPkg && (
-            <CardContent className="space-y-2.5 text-[12px]">
-              <Row k="intent → fast path" v={`${lastPkg.intent} → ${lastPkg.fast_path}`} />
-              <Row k="router" v={lastPkg.router.replace("_", " ")} />
-              <Row k="writer" v={lastPkg.provider} />
-              <Row k="latency" v={seconds(lastPkg.latency_s)} />
-              <Row k="drafts" v={String(lastPkg.draft_attempts)} />
-              <Row k="tool runs" v={String(lastPkg.tool_runs.length)} />
-              <Row
-                k="validation"
-                v={
-                  lastPkg.validation
-                    ? `${lastPkg.validation.checks.filter((c) => c.passed).length}/${lastPkg.validation.checks.length} passed`
-                    : "no draft to grade"
-                }
-              />
-              <Row k="citations" v={String(lastPkg.citations.length)} />
-              {lastPkg.degraded && (
-                <p className="pt-1 text-[11px] text-amber-500">
-                  Degraded: at least one validator check failed and was flagged
-                  UNVERIFIED.
-                </p>
-              )}
-            </CardContent>
-          )}
-        </Card>
-
-        <Card className="border-border/60 bg-card/70 backdrop-blur-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Live, not a replay</CardTitle>
-            <CardDescription>what changed when the API came online</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-1.5 text-[11px] text-muted-foreground">
-            <p>• Every question runs the real pipeline; nothing is matched to a recording.</p>
-            <p>
-              • The header badge polls <span className="font-mono">/health</span>; if the API
-              is down the UI says so and offers no fallback numbers.
-            </p>
-            <p>
-              • The planner, segments and test-design pages read{" "}
-              <span className="font-mono">/api/v1/overview</span>, computed from the same
-              champion.
-            </p>
-          </CardContent>
-        </Card>
+      {/* right rail — how an answer is built, graph first */}
+      <div className="space-y-3 lg:sticky lg:top-20 lg:self-start">
+        <PipelineRailCard
+          activeStage={pending ? pending.stage : null}
+          lastRun={lastRunSummary}
+        />
+        <p className="px-1.5 text-[10px] leading-relaxed text-muted-foreground">
+          No recorded answers — every question runs the live pipeline and lands its own
+          MLflow trace. The header badge is the health truth: when it goes red, the UI
+          shows no fallback data.
+        </p>
       </div>
 
       <StatusIsland
@@ -754,15 +829,6 @@ export default function CopilotPage() {
         className="fixed bottom-6 right-6 z-50"
         dismissAfter={1200}
       />
-    </div>
-  )
-}
-
-function Row({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[11px] text-muted-foreground">{k}</span>
-      <span className="text-right font-medium tabular-nums">{v}</span>
     </div>
   )
 }

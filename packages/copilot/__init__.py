@@ -3,7 +3,9 @@
 One public entry point, :func:`run_request`, runs the whole pipeline::
 
     marketer question
-      ─[1] GATE─── Decisions API, 3 named questions (router.route_question)
+      ─[1] GATE─── Decisions API, 4 named questions (router.route_question)
+      ─[model]──── deterministic resolution: pin > intent > gate > champion
+                   (selection.resolve_model — never an LLM decision)
       ─[2] PLAN─── pure Python: Scenario + Day-4 tools (planner.run_tools)
       ─[3] WRITE── pluggable writer: template / ollama / neurometric
       ─[4] VALIDATE─ code: number-trace, units, causal rubric, sections
@@ -34,6 +36,7 @@ from packages.copilot.schemas import (
     DraftRequest,
     load_config,
 )
+from packages.copilot.selection import assert_valid_model_name, resolve_model
 from packages.copilot.trace import new_trace_id
 from packages.copilot.writer import get_writer, write_brief
 from packages.tracking import (
@@ -84,6 +87,8 @@ def run_request(
     config: CopilotConfig | None = None,
     client: DecisionsClient | None = None,
     writer_provider: str | None = None,
+    model: str | None = None,
+    research_mode: bool = False,
     context: HoldoutContext | None = None,
     mlflow_trace: bool = False,
 ) -> BriefPackage:
@@ -93,6 +98,13 @@ def run_request(
     holdout context) so tests run the identical pipeline with fakes.
     A missing ``.env`` degrades gracefully: the keyword router replaces the
     Decisions API, and the template writer replaces a generative one.
+
+    ``model`` pins a ranking artifact (the UI's "use this model"); an invalid
+    pin — unknown, unregistered, or research-only without Research Mode — is
+    a caller error and raises ``ValueError`` before the gate runs. With no
+    pin, the gate's confident ``model`` choice for plan/what-if intents wins,
+    and everything else keeps the champion. ``research_mode`` widens the
+    allow-list to the research-only learners (S/T/X/forest).
 
     ``mlflow_trace`` opens one GenAI trace (gate → plan → write → validate)
     under the ``smartspend`` experiment. It is off by default so tests and
@@ -104,6 +116,8 @@ def run_request(
             config=config,
             client=client,
             writer_provider=writer_provider,
+            model=model,
+            research_mode=research_mode,
             context=context,
         )
 
@@ -113,6 +127,8 @@ def run_request(
             config=config,
             client=client,
             writer_provider=writer_provider,
+            model=model,
+            research_mode=research_mode,
             context=context,
         )
         set_span_outputs(
@@ -127,6 +143,8 @@ def run_request(
                 "degraded": package.degraded,
                 "router": package.router,
                 "decline_reason": package.decline_reason,
+                "model": package.model_name,
+                "score_kind": package.score_kind,
                 "stage_latencies": {
                     key: round(value, 3)
                     for key, value in package.stage_latencies.items()
@@ -145,6 +163,10 @@ def run_request(
                 "llm.response": (
                     package.provider if package.fast_path == "brief" else "none"
                 ),
+                "ml.model": package.model_name or "none",
+                "ml.score_kind": package.score_kind or "none",
+                "model.selector": package.model_selector or "none",
+                "research.mode": str(package.research_mode).lower(),
                 **(
                     {"decline_reason": package.decline_reason}
                     if package.decline_reason
@@ -161,10 +183,15 @@ def _run_request(
     config: CopilotConfig | None = None,
     client: DecisionsClient | None = None,
     writer_provider: str | None = None,
+    model: str | None = None,
+    research_mode: bool = False,
     context: HoldoutContext | None = None,
 ) -> BriefPackage:
     """The pipeline body, shared by traced and untraced callers."""
     config = config if config is not None else load_config()
+    # A bad pin is a caller error: fail fast (a 4xx at the API) instead of
+    # running the whole pipeline and silently swapping the model afterwards.
+    assert_valid_model_name(model, research_mode)
     trace_id = new_trace_id()
     started = time.perf_counter()
     stages: dict[str, float] = {}
@@ -178,8 +205,8 @@ def _run_request(
             client = None
 
     if client is not None:
-        gate_state = build_state(question)
-        gate_questions = build_questions()
+        gate_state = build_state(question, research_mode=research_mode)
+        gate_questions = build_questions(research_mode)
         gate_name = "decision_llm"
         gate_inputs = {
             "model": getattr(client, "model", "unknown"),
@@ -195,7 +222,11 @@ def _run_request(
         gate_state = None
         gate_questions = None
         gate_name = "decision_router_fallback"
-        gate_inputs = {"question": question, "router": "keyword_fallback"}
+        gate_inputs = {
+            "question": question,
+            "router": "keyword_fallback",
+            "research_mode": research_mode,
+        }
         gate_attributes = {
             "smartspend.llm_role": "decision",
             "llm.provider": "keyword_fallback",
@@ -209,7 +240,13 @@ def _run_request(
         attributes=gate_attributes,
     ) as span:
         route = (
-            route_question(question, client, state=gate_state, questions=gate_questions)
+            route_question(
+                question,
+                client,
+                state=gate_state,
+                questions=gate_questions,
+                research_mode=research_mode,
+            )
             if client is not None
             else keyword_fallback_route(question)
         )
@@ -224,6 +261,8 @@ def _run_request(
                 "router": route.router,
                 "fast_path": fast_path,
                 "missing_inputs": route.missing_inputs,
+                "model_choice": route.model_choice,
+                "model_confidence": route.model_confidence,
             },
         )
 
@@ -236,6 +275,7 @@ def _run_request(
             prose=DECLINE_POLICY_TEXT,
             decline_reason="policy_risk",
             router=route.router,
+            research_mode=research_mode,
             trace_id=trace_id,
             latency_s=time.perf_counter() - started,
             stage_latencies=stages,
@@ -248,6 +288,7 @@ def _run_request(
             prose=REDIRECT_TEXT,
             decline_reason="out_of_scope",
             router=route.router,
+            research_mode=research_mode,
             trace_id=trace_id,
             latency_s=time.perf_counter() - started,
             stage_latencies=stages,
@@ -255,7 +296,18 @@ def _run_request(
 
     # ── [2] PLAN ───────────────────────────────────────────────────────────
     t0 = time.perf_counter()
-    with trace_span("plan", "CHAIN", inputs={"intent": route.intent.value}) as span:
+    # Model resolution is deterministic and happens *before* any tool runs:
+    # pin > non-model-sensitive default > confident gate choice > champion.
+    selection = resolve_model(route, model, research_mode=research_mode, config=config)
+    with trace_span(
+        "plan",
+        "CHAIN",
+        inputs={
+            "intent": route.intent.value,
+            "model": selection.name,
+            "model_selector": selection.selector,
+        },
+    ) as span:
         scenario = extract_scenario(question, route.intent, config)
         if fast_path == "clarify":
             stages["plan"] = time.perf_counter() - t0
@@ -272,12 +324,13 @@ def _run_request(
                 clarify_question=clarify,
                 scenario=scenario,
                 router=route.router,
+                research_mode=research_mode,
                 trace_id=trace_id,
                 latency_s=time.perf_counter() - started,
                 stage_latencies=stages,
             )
 
-        holdout = context if context is not None else get_context()
+        holdout = context if context is not None else get_context(selection.name)
         tool_runs = run_tools(scenario, holdout, config)
         stages["plan"] = time.perf_counter() - t0
         set_span_outputs(
@@ -285,6 +338,8 @@ def _run_request(
             {
                 "scenario": scenario.model_dump(),
                 "tools": [r.name for r in tool_runs],
+                "model": holdout.model_name,
+                "score_kind": holdout.score_kind,
             },
         )
 
@@ -292,7 +347,13 @@ def _run_request(
     t0 = time.perf_counter()
     writer = get_writer(config, writer_provider)
     request = DraftRequest(
-        intent=route.intent, question=question, scenario=scenario, tool_runs=tool_runs
+        intent=route.intent,
+        question=question,
+        scenario=scenario,
+        tool_runs=tool_runs,
+        model_name=holdout.model_name,
+        model_label=holdout.label or holdout.model_name,
+        score_kind=holdout.score_kind,
     )
     with trace_span(
         "write_validate", "CHAIN", inputs={"provider": writer.name}
@@ -322,6 +383,14 @@ def _run_request(
         degraded=degraded,
         provider=final.provider,
         router=route.router,
+        model_name=holdout.model_name,
+        model_label=holdout.label or holdout.model_name,
+        model_learner=holdout.learner,
+        model_tier=holdout.tier,
+        score_kind=holdout.score_kind,
+        model_selector=selection.selector,
+        model_confidence=selection.confidence,
+        research_mode=research_mode,
         draft_attempts=len(attempts),
         trace_id=trace_id,
         latency_s=time.perf_counter() - started,

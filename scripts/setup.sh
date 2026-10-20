@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full setup from a fresh clone (or after `npm run delete`):
-#   tools → Python env → web deps → .env → data → champion → database → MLflow.
+#   tools → Python env → web deps → .env → data → models → database → MLflow.
 #
 # Idempotent: existing artifacts are verified/skipped, never re-downloaded or
 # re-trained. Run it again any time; it is also the repair path.
@@ -44,27 +44,31 @@ fi
 step "raw Hillstrom data — download if missing, then verify the checksum"
 uv run python pipelines/download.py
 
-step "champion model"
-if [ -f models/champion.joblib ] && [ -f models/champion.meta.json ]; then
-  echo "    models/champion.joblib already registered — skipping training"
-else
-  echo "    no registered champion — training the response baseline (seed 42)"
-  uv run python pipelines/train.py
-fi
+step "models — train every catalog learner that is missing"
+uv run python pipelines/train_all.py
 
 step "app database — alembic upgrade head"
 uv run alembic -c apps/api/alembic.ini upgrade head
 
-step "MLflow — backfill the champion (idempotent)"
+step "MLflow — backfill the registered models (idempotent)"
 mkdir -p data/mlflow
 uv run python pipelines/log_mlflow.py || echo "    warning: MLflow backfill skipped"
 
 step "smoke checks"
 uv run python - <<'PY'
-from packages.causal.registry import load_model
+from packages.causal.catalog import MODEL_SPECS
+from packages.causal.registry import load_meta
 
-_, meta = load_model("champion")
-print(f"    champion loads: {meta['learner']} on {meta['target']} (seed {meta['random_state']})")
+for spec in MODEL_SPECS:
+    try:
+        meta = load_meta(spec.name)
+    except FileNotFoundError:
+        print(f"    {spec.name}: NOT registered (train it with pipelines/train_all.py)")
+        continue
+    print(
+        f"    {spec.name} ({spec.tier}) loads: {meta['learner']} on "
+        f"{spec.score_kind} at seed {meta['random_state']}"
+    )
 PY
 uv run python -c "from apps.api.app.main import app; print(f'    API imports: {app.title}')"
 

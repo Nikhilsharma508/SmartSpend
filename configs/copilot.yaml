@@ -10,6 +10,8 @@ router:
                           # below it the gate falls through to the clarify check first
                           # (calibrated: campaign_clarify oos 0.86 -> clarify,
                           #  ambiguous_campaign oos 0.96 -> redirect)
+  t_model_confidence: 0.60  # model choice confidence < this -> keep the champion
+                            # (never switch models on a low-confidence gate answer)
 
 planner:
   default_depth: 0.30     # targeting depth when no budget is stated
@@ -30,6 +32,7 @@ writer:
   neurometric_model: "neurometric/goal-setter"
 
 prompts:
-  prompt_version: v2      # stamped into the trace; bump when prompts change
+  prompt_version: v3      # stamped into the trace; bump when prompts change
                           # v2: anti-derivation rule (no derived shares/relative CI)
                           # after live pass@1 findings, notebook 05
+                          # v3: model-semantics block (score kind never miscast)

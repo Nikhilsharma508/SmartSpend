@@ -138,12 +138,53 @@ class ModelCard(BaseModel):
 
     name: str
     learner: str
+    label: str = ""
     target: str
     trained_at: str
     train_rows: int
     data_sha256: str
     metrics: dict[str, float | int]
     assumptions: AssumptionsSchema
+    #: Catalog semantics (packages/causal/catalog.py): tier, score kind, mode.
+    tier: str = "champion"
+    score_kind: str = "response_probability"
+    supports_intervals: bool = False
+    research_only: bool = False
+    use_case: str = ""
     fairness_note: str
     when_not_to_use: list[str]
     limitations: list[str]
+
+
+class ModelComparisonRow(BaseModel):
+    """One registered model scored on the same seed-42 test split.
+
+    The single-seed numbers describe *this artifact*; the 10-seed benchmark in
+    ``docs/concepts.md`` is the honest performance envelope a winner claim
+    must come from.
+    """
+
+    name: str
+    label: str
+    learner: str
+    tier: str
+    score_kind: str
+    supports_intervals: bool
+    research_only: bool
+    use_case: str
+    warning: str | None = None
+    qini_auc: float
+    uplift_at_k: float
+    incremental_conversions_at_k: float
+    profit_at_k_usd: float
+    profit_per_contact_usd: float
+    n_test: int
+    trained_at: str
+    benchmark_warning: str | None = None
+
+
+class ModelComparison(BaseModel):
+    """All registered artifacts scored once on the same holdout rows."""
+
+    rows: list[ModelComparisonRow]
+    note: str

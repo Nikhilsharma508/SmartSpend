@@ -13,10 +13,16 @@ def test_overview_serves_the_live_payload(monkeypatch) -> None:
     """
     payload = {
         "meta": {"generated": "2026-10-20", "generator": "test"},
-        "context": {"n_test": 8523},
+        "context": {
+            "n_test": 8523,
+            "model_name": "champion",
+            "model_label": "Response baseline",
+            "tier": "champion",
+            "score_kind": "response_probability",
+        },
         "profit_curve": {"points": []},
     }
-    monkeypatch.setattr(overview_module, "build_overview", lambda: payload)
+    monkeypatch.setattr(overview_module, "build_overview", lambda model: payload)
 
     r = client.get("/api/v1/overview")
 

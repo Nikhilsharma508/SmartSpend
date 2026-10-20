@@ -1,27 +1,38 @@
 """The [1] GATE — one Decisions API call, thresholded into a route.
 
-The gate asks three *named* questions in a single request (shape verified live
+The gate asks four *named* questions in a single request (shape verified live
 in ``research/notebooks/decision_api.ipynb``):
 
 - ``intent``          — a ``choice`` over the four use cases plus ``out_of_scope``
 - ``policy_risk``     — a ``noul``: does the request target or exclude people by
                         a sensitive attribute or a proxy for one?
 - ``missing_inputs``  — a ``noul``: is a required parameter absent?
+- ``model``           — a ``choice`` over the registered ranking models (plus
+                        ``none``): which artifact should answer plan/what-if?
+
+The model question produces a *suggestion*, never a decision: the resolver in
+:mod:`packages.copilot.selection` applies the allow-list, the confidence
+threshold and the champion fallback, so the gate can never pick a model the
+user could not pick themselves.
 
 Design rules from ``docs/decision_api.md`` that apply here: the gate emits
 typed probabilities and never prose; every question is named; the choice always
-carries an ``other`` escape (``out_of_scope``); independent questions ride one
-call so the fast paths stay fast.
+carries an ``other`` escape (``out_of_scope`` / ``none``); independent
+questions ride one call so the fast paths stay fast.
 
-If the endpoint is unreachable, errors, or *refuses* a question,
+If the endpoint is unreachable, errors, or *refuses* a core question,
 :func:`keyword_fallback_route` keeps the copilot answering deterministically —
-recorded as ``router=keyword_fallback`` in the trace, never silently.
+recorded as ``router=keyword_fallback`` in the trace, never silently. A refusal
+on the auxiliary ``model`` question is absorbed (the choice becomes ``None``);
+a refusal on ``intent``/``policy_risk``/``missing_inputs`` poisons the whole
+route.
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
+from packages.causal import catalog
 from packages.copilot.providers import DecisionsClient, ProviderError
 from packages.copilot.schemas import CopilotConfig, Intent, Route
 
@@ -29,6 +40,7 @@ from packages.copilot.schemas import CopilotConfig, Intent, Route
 QUESTION_INTENT = "intent"
 QUESTION_POLICY_RISK = "policy_risk"
 QUESTION_MISSING = "missing_inputs"
+QUESTION_MODEL = "model"
 
 INTENT_CRITERIA: dict[str, str] = {
     "plan": (
@@ -54,8 +66,37 @@ INTENT_CRITERIA: dict[str, str] = {
 }
 
 
-def build_questions() -> dict[str, dict[str, object]]:
-    """The three named questions, exactly as the live endpoint expects them."""
+def _model_instructions(research_mode: bool) -> str:
+    base = (
+        "Which registered ranking model should produce the plan's numbers? "
+        "Pick the one whose score meaning matches what the marketer asked "
+        "about. Pick 'none' when the request does not favour any model."
+    )
+    if research_mode:
+        return base + " Research Mode is ON: research-only models are selectable."
+    return base + " Research Mode is OFF: only the champion and the DR challenger are selectable."
+
+
+def _model_criteria(research_mode: bool) -> dict[str, str]:
+    """Choice criteria over the catalog — the names the resolver validates."""
+    entries = {"none": "No model preference; leave the default champion in place."}
+    for spec in catalog.MODEL_SPECS:
+        if spec.research_only and not research_mode:
+            continue
+        text = (
+            f"{spec.label} (tier: {spec.tier}). Its score is "
+            f"{catalog.score_meaning(spec.score_kind)} Use case: {spec.use_case}"
+        )
+        if spec.tier == catalog.TIER_CHAMPION:
+            text += " The safe default for budget planning."
+        if spec.warning:
+            text += f" Caveat: {spec.warning}"
+        entries[spec.name] = text
+    return entries
+
+
+def build_questions(research_mode: bool = False) -> dict[str, dict[str, object]]:
+    """The four named questions, exactly as the live endpoint expects them."""
     return {
         QUESTION_INTENT: {
             "type": "choice",
@@ -100,6 +141,12 @@ def build_questions() -> dict[str, dict[str, object]]:
                 ),
             },
         },
+        QUESTION_MODEL: {
+            "type": "choice",
+            "name": QUESTION_MODEL,
+            "instructions": _model_instructions(research_mode),
+            "criteria": _model_criteria(research_mode),
+        },
     }
 
 
@@ -108,16 +155,21 @@ def parse_route(
 ) -> Route:
     """Turn the Decisions answers dict into a :class:`Route`.
 
+    The ``model`` answer is auxiliary: a refusal there leaves the route valid
+    with ``model_choice=None`` (the resolver keeps the champion), while a
+    refusal on any core question raises, because half of a poisoned route is
+    still poison.
+
     Raises
     ------
     ProviderError
-        Any question was refused — the whole route is untrustworthy, so the
-        caller falls back to the keyword router rather than half-routing.
+        Any core question was refused — the whole route is untrustworthy, so
+        the caller falls back to the keyword router rather than half-routing.
     """
     refused = [
         name
         for name, ans in answers.items()
-        if isinstance(ans, dict) and ans.get("type") == "refusal"
+        if isinstance(ans, dict) and ans.get("type") == "refusal" and name != QUESTION_MODEL
     ]
     if refused:
         raise ProviderError("decisions", f"question(s) refused: {refused}")
@@ -142,24 +194,55 @@ def parse_route(
         except (TypeError, ValueError):
             return 0.0
 
+    model_ans = answers.get(QUESTION_MODEL, {})
+    model_ans = model_ans if isinstance(model_ans, dict) else {}
+    raw_model_choice = str(model_ans.get("choice") or "")
+    model_choice: str | None = None
+    if raw_model_choice and raw_model_choice not in ("none", "None"):
+        model_choice = raw_model_choice
+    model_confidence = model_ans.get("confidence")
+    if model_confidence is None:
+        probabilities = model_ans.get("probabilities") or {}
+        model_confidence = (
+            max(probabilities.values(), default=None) if probabilities else None
+        )
+    try:
+        model_confidence = float(model_confidence) if model_confidence is not None else None
+    except (TypeError, ValueError):
+        model_confidence = None
+
     return Route(
         intent=intent,
         intent_confidence=float(confidence),
         policy_risk=_noul(QUESTION_POLICY_RISK),
         missing_inputs=_noul(QUESTION_MISSING),
+        model_choice=model_choice,
+        model_confidence=model_confidence,
         router=router,
         answers=dict(answers),
     )
 
 
-def build_state(question: str) -> dict[str, Any]:
-    """The Decisions API ``state`` payload for one question."""
+def build_state(question: str, *, research_mode: bool = False) -> dict[str, Any]:
+    """The Decisions API ``state`` payload for one question.
+
+    The context line lists the registered models and the mode, so the gate's
+    ``model`` answer is made against the same allow-list the resolver enforces.
+    """
+    selectable = [
+        f"{spec.name} ({spec.label}, {spec.tier})"
+        for spec in catalog.MODEL_SPECS
+        if (not spec.research_only or research_mode)
+    ]
     return {
         "user_question": question,
         "available_context": (
             "Campaign copilot for uplift-based email targeting on the Hillstrom "
             "experiment; tools: optimize_budget, compare_scenarios, "
-            "get_segment_profile, design_ab_test, get_model_card."
+            "get_segment_profile, design_ab_test, get_model_card. Registered "
+            f"targeting models: {'; '.join(selectable)}. Research Mode is "
+            f"{'ON' if research_mode else 'OFF'} — research-only models are "
+            f"{'selectable' if research_mode else 'locked'}."
         ),
     }
 
@@ -170,10 +253,11 @@ def route_question(
     *,
     state: dict[str, Any] | None = None,
     questions: dict[str, dict[str, object]] | None = None,
+    research_mode: bool = False,
 ) -> Route:
     """One gate call; on any provider failure, the deterministic keyword route."""
-    state = state if state is not None else build_state(question)
-    questions = questions if questions is not None else build_questions()
+    state = state if state is not None else build_state(question, research_mode=research_mode)
+    questions = questions if questions is not None else build_questions(research_mode)
     try:
         body = client.decide(state, questions)
         return parse_route(body.get("answers", {}))
@@ -255,33 +339,58 @@ _POLICY_KEYWORDS: tuple[str, ...] = (
 )
 
 
+#: Uplift-vocabulary keywords — when the marketer asks about *incremental*
+#: effects rather than response likelihood, the deterministic fallback points
+#: at the DR challenger. Never a research-only model: the resolver keeps weak
+#: models out of automatic choices by construction.
+_MODEL_KEYWORDS: tuple[str, ...] = (
+    "uplift",
+    "persuadable",
+    "persuade",
+    "incremental",
+    "increment",
+    "causal effect",
+    "cause to buy",
+    "would they buy anyway",
+)
+
+
 def keyword_fallback_route(question: str) -> Route:
     """Score the question against keyword sets; no model, no network.
 
     Precision is intentionally modest — this path exists for availability, and
     the trace always says ``router=keyword_fallback`` so evals can price it.
+    A DR-keyword hit sets ``model_choice`` as a *suggestion*; plan/what-if
+    intents resolve it, everything else ignores it.
     """
     low = question.lower()
     policy_hit = any(k in low for k in _POLICY_KEYWORDS)
     scores = {intent: sum(1 for k in keys if k in low) for intent, keys in _INTENT_KEYWORDS.items()}
-    best = max(scores, key=lambda i: scores[i])
-    if scores[best] == 0:
+    if scores[max(scores, key=lambda i: scores[i])] == 0:
         return Route(
             intent=Intent.OUT_OF_SCOPE,
             intent_confidence=0.4,
             policy_risk=0.9 if policy_hit else 0.02,
             missing_inputs=0.0,
+            model_choice=None,
+            model_confidence=None,
             router="keyword_fallback",
             answers={"keyword_scores": {i.value: s for i, s in scores.items()}},
         )
     total = sum(scores.values())
+    model_choice = "dr-learner" if any(k in low for k in _MODEL_KEYWORDS) else None
     return Route(
-        intent=best,
-        intent_confidence=round(scores[best] / total, 4),
+        intent=max(scores, key=lambda i: scores[i]),
+        intent_confidence=round(scores[max(scores, key=lambda i: scores[i])] / total, 4),
         policy_risk=0.9 if policy_hit else 0.02,
         missing_inputs=0.0,
+        model_choice=model_choice,
+        model_confidence=0.65 if model_choice else None,
         router="keyword_fallback",
-        answers={"keyword_scores": {i.value: s for i, s in scores.items()}},
+        answers={
+            "keyword_scores": {i.value: s for i, s in scores.items()},
+            "model_keywords": [k for k in _MODEL_KEYWORDS if k in low],
+        },
     )
 
 

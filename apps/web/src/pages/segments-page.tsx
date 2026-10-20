@@ -10,9 +10,25 @@ import {
 } from "@/components/ui/card"
 import { SegmentUpliftChart } from "@/components/charts/segment-uplift-chart"
 import type { Segment } from "@/api/types"
+import { SwitchVeil } from "@/components/switch-veil"
+import { Term } from "@/components/term"
 import { LoadError } from "@/components/load-error"
 import { useOverview } from "@/hooks/use-overview"
+import { usePreserveScrollDuringSwap } from "@/hooks/use-preserve-scroll"
 import { intFmt, rateFmt } from "@/lib/format"
+import { cn } from "@/lib/utils"
+
+/** The model card's raw metric keys, readably. Unknown keys fall back raw. */
+const METRIC_LABELS: Record<string, string> = {
+  qini_auc: "ranking quality (Qini)",
+  qini: "ranking quality (Qini)",
+  auuc: "ranking quality (AUUC)",
+  auc: "response ranking (AUC)",
+  mae: "mean abs. error",
+  rmse: "root mean sq. error",
+  spearman: "rank correlation (Spearman)",
+  calibration: "calibration error",
+}
 
 function UpliftBar({
   value,
@@ -91,7 +107,9 @@ function SegmentCard({
           </div>
           <div className="space-y-1.5">
             <div className="flex items-baseline justify-between">
-              <span className="text-[11px] text-muted-foreground">visit-rate uplift</span>
+              <span className="text-[11px] text-muted-foreground">
+                <Term k="uplift">visit uplift</Term>
+              </span>
               <span className="font-semibold tabular-nums">{rateFmt(seg.uplift_visit, 1)}</span>
             </div>
             <UpliftBar
@@ -101,13 +119,16 @@ function SegmentCard({
               max={maxUplift}
             />
             <div className="flex justify-between tabular-nums text-[10.5px] text-muted-foreground">
-              <span>95% CI {rateFmt(seg.uplift_visit_ci_low, 1)}</span>
+              <span>
+                <Term k="ci">95% band</Term> {rateFmt(seg.uplift_visit_ci_low, 1)}
+              </span>
               <span>{rateFmt(seg.uplift_visit_ci_high, 1)}</span>
             </div>
           </div>
           {seg.uplift_conversion === null && (
             <p className="rounded-md bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
-              conversion-plane uplift: no usable record — visits only.
+              Conversion uplift can't be estimated here — this segment held too few
+              conversions; read the visit lift only.
             </p>
           )}
         </CardContent>
@@ -117,7 +138,10 @@ function SegmentCard({
 }
 
 export default function SegmentsPage() {
-  const { data: fx, isPending, isError, error } = useOverview()
+  const { data: fx, isPending, isError, error, isPlaceholderData, switchingLabel } =
+    useOverview()
+  // a model swap must not move the reader
+  usePreserveScrollDuringSwap(isPlaceholderData)
 
   if (isPending) {
     return (
@@ -132,7 +156,7 @@ export default function SegmentsPage() {
   const evalTotal = profile.fairness.reduce((acc, r) => acc + r.n_eval, 0)
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Segments</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{profile.note}</p>
@@ -206,15 +230,32 @@ export default function SegmentsPage() {
       {/* model card */}
       <Card className="border-border/60 bg-card/70 backdrop-blur-sm">
         <CardHeader>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Cpu className="size-4 text-muted-foreground" />
             <CardTitle className="text-base">Model card</CardTitle>
             <Badge variant="outline" className="text-[10px]">
               {fx.model_card.name}
             </Badge>
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-[10px]",
+                fx.model_card.tier === "champion"
+                  ? "border-dashed"
+                  : "border-amber-400/40 bg-amber-400/10 text-amber-500 dark:text-amber-300",
+              )}
+            >
+              {fx.model_card.tier}
+            </Badge>
+            {fx.model_card.score_kind && (
+              <Badge variant="secondary" className="text-[10px]">
+                {fx.model_card.score_kind}
+              </Badge>
+            )}
           </div>
           <CardDescription>
-            {fx.model_card.learner} · target {fx.model_card.target} · trained{" "}
+            {fx.model_card.label || fx.model_card.learner} · {fx.model_card.learner} · target{" "}
+            {fx.model_card.target} · trained{" "}
             {fx.model_card.trained_at.slice(0, 10)} on {intFmt(fx.model_card.train_rows)} rows
           </CardDescription>
         </CardHeader>
@@ -224,15 +265,19 @@ export default function SegmentsPage() {
               metrics
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {Object.entries(fx.model_card.metrics).map(([k, v]) => (
-                <span
-                  key={k}
-                  className="rounded-md bg-muted/70 px-2 py-1 font-mono text-[10.5px]"
-                >
-                  {k.replace(/_(test|train)$/g, "")}{" "}
-                  <span className="font-semibold">{v.toFixed(3)}</span>
-                </span>
-              ))}
+              {Object.entries(fx.model_card.metrics).map(([k, v]) => {
+                const bare = k.replace(/_(test|train)$/g, "")
+                return (
+                  <span
+                    key={k}
+                    className="rounded-md bg-muted/70 px-2 py-1 font-mono text-[10.5px]"
+                    title={k}
+                  >
+                    {METRIC_LABELS[bare] ?? bare}{" "}
+                    <span className="font-semibold">{v.toFixed(3)}</span>
+                  </span>
+                )
+              })}
             </div>
             <p className="pt-1 leading-relaxed text-muted-foreground">{fx.model_card.fairness_note}</p>
           </div>
@@ -260,6 +305,9 @@ export default function SegmentsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* keep the outgoing page mounted while the next model's numbers load */}
+      <SwitchVeil show={isPlaceholderData} label={switchingLabel} />
     </div>
   )
 }

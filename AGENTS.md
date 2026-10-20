@@ -16,6 +16,8 @@ Run everything from the repo root with `uv`.
 uv sync                                        # create .venv, install (CI uses --frozen)
 uv run python pipelines/download.py            # fetch raw CSV if missing, then verify
                                                #   --verify-only: no network; --force: re-download
+uv run python pipelines/train_all.py           # train + register every catalog model (§ docs/concepts.md 9)
+                                               #   skips existing; --force retrains; --only <name> for one
 uv run ruff check .                            # lint (line-length 100)
 uv run mypy packages pipelines                 # typecheck (scope is packages + pipelines only)
 uv run pytest                                  # all tests (skip, not fail, if raw CSV absent;
@@ -31,9 +33,11 @@ Root npm automation (mise shims on PATH first):
 
 ```bash
 npm run setup                     # idempotent end-to-end bootstrap: mise, uv sync,
-                                  #   pnpm install, .env, data, champion, alembic, MLflow, smoke
+                                  #   pnpm install, .env, data, all six catalog models,
+                                  #   alembic, MLflow, smoke
 npm run start                     # FastAPI :8000 + web :5173 (see below)
-npm run mlflow                    # MLflow UI :5000 (MLFLOW_PORT overrides); seeds the champion
+npm run mlflow                    # MLflow UI :5000 (MLFLOW_PORT overrides); seeds the
+                                  #   six registered models (idempotent backfill)
 npm run delete                    # destructive reset; keeps .env + lockfiles. --dry-run / --yes
 ```
 
@@ -58,11 +62,22 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   before the web server starts.
 
 - **The UI is live, with no fallback data.** Pages read `/api/v1/overview` (computed
-  per process from the registered champion by the Day-4 tools) and the copilot posts
-  `/api/v1/copilot`; the header badge polls `/health` and says `api offline` rather
-  than showing stale numbers. Never hand-invent a UI number. `apps/web/tests/overview.json`
-  is a unit-test snapshot only — the shipped app never reads it. The first request after
-  boot waits for the ~20 s DRPolicyTree fit, which the API warms in a background thread.
+  per process for the model selected in the **header model pill** — champion by
+  default — by the Day-4 tools) and the copilot posts `/api/v1/copilot`; the header
+  badge polls `/health` and says `api offline` rather than showing stale numbers.
+  Never hand-invent a UI number: model labels and score kinds come from
+  `/api/v1/models`. `apps/web/tests/overview.json` is a unit-test snapshot only —
+  the shipped app never reads it. The first request after boot waits for the ~20 s
+  DRPolicyTree fit, which the API warms in a background thread; each non-default
+  model's overview is computed on its own first request and cached separately. Model
+  + Research Mode preference live in `src/state/model-settings.tsx` (localStorage keys
+  `smartspend-model`, `smartspend-research-mode`); `pickModel(name, researchOnly)`
+  auto-enables the mode. The header pill is the global switcher (catalog + Research
+  Mode toggle) and shares its guards/toasts with the Model lab through
+  `src/lib/model-actions.ts`. Copy rule: the plain sentence carries the meaning, the
+  technical name is the annotation — jargon gets a plain tooltip from
+  `src/lib/plain-terms.ts` (`<Term>`), tool names are muted mono chips
+  (`<ToolChip>`); labels change, numbers never.
 - `src/components/kokonutui/`, `src/components/charts/` (Bklit) and
   `src/components/shimmering-text.tsx` are registry-vendored and lint-relaxed in
   `eslint.config.js`. `charts/profit-curve-chart.tsx` and
@@ -105,12 +120,14 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   packages.*` only resolves when the CWD is the repo root (pytest sets `pythonpath`, the
   notebook bootstraps `sys.path`). Running a script from elsewhere fails with
   `ModuleNotFoundError: No module named 'packages'`.
-- **Most of the skeleton is real now.** Real code: `packages/datasets/`,
-  `packages/causal/diagnostics.py`, `packages/decision/`, `packages/copilot/`,
-  `packages/tracking/`, `packages/plotting.py`, `pipelines/download.py`, `tests/`,
-  `evals/`, `apps/api` (FastAPI + SQLite + MLflow) and `apps/web` (live Day-6
-  frontend). The rest of `packages/causal/` is still a placeholder. Do not assume
-  planned modules exist.
+- **The whole `packages/causal/` core is real now.** Real code: `packages/datasets/`,
+  `packages/causal/` (catalog = serving truth, holdout split, registry with the
+  semantics-checked sidecars, learners, benchmark, calibration), `packages/decision/`,
+  `packages/copilot/` (gate + per-model planner + validator V1–V6 + resolver
+  `selection.py`), `packages/tracking/`, `packages/plotting.py`,
+  `pipelines/{download,train,train_all,log_mlflow}.py`, `tests/`, `evals/`,
+  `apps/api` (FastAPI + SQLite + MLflow) and `apps/web` (live Day-6 frontend with
+  the Model lab). Don't assume further planned modules exist.
 - `data/raw/` and `data/processed/` are git-ignored (`.gitkeep` only); the raw CSV is
   fetched and checksum-verified by `pipelines/download.py`.
 
@@ -130,12 +147,15 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   Alembic — chosen over the documented PostgreSQL to keep the local run
   sign-in-free, with the Postgres swap remaining a one-URL change (PostgreSQL 18
   is the documented production option). No auth on local services.
-- **MLflow tracks locally in SQLite only** (MLflow 3.17, `data/mlflow/mlflow.db`): the champion's
-  params/metrics, and one GenAI trace per `/api/v1/copilot` request with child spans for
-  `decision_llm`, plan, each Day-4 tool, `response_llm_attempt_*` (or
-  `response_writer_attempt_*`) and validate. No artifacts are logged — the joblib
-  and provenance sidecar in `models/` remain the load-path code of record. `npm run mlflow`
-  serves the store; the UI's **GenAI → Traces** view is the copilot audit view.
+- **MLflow tracks locally in SQLite only** (MLflow 3.17, `data/mlflow/mlflow.db`): one
+  run per registered catalog model per provenance digest (all six; idempotent backfill
+  via `pipelines/log_mlflow.py`), plus one GenAI trace per `/api/v1/copilot` request
+  with child spans for `decision_llm`, plan, each Day-4 tool, `response_llm_attempt_*`
+  (or `response_writer_attempt_*`) and validate. Tool spans carry `ml.model`,
+  `ml.score_kind`, `model.selector` and `research.mode`. No artifacts are logged — the
+  joblib and provenance sidecars in `models/` remain the load-path code of record.
+  `npm run mlflow` serves the store; the UI's **GenAI → Traces** view is the copilot
+  audit view.
 
 ## Conventions
 
@@ -144,6 +164,13 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   a metric or a result, add it to that file in the same change — definitions in the
   numbered sections, values in the findings ledger. It is the canonical concept +
   numbers doc; notebooks only explain briefly and link back.
+- **Model-choice truth is code, not the LLM.** `packages/causal/catalog.py` is the
+  single serving truth and `packages/copilot/selection.py` the only resolver; a
+  last-line prompt never overrides them. Ranked scenario rows are always named
+  `"<model label> ranking"` — match with `endswith(" ranking")`, never a hardcoded
+  model name. And keep the two metric families separate (concepts.md §9): the
+  10-seed envelope is for selection claims, the seed-42 sidecars audit the deployed
+  artifacts — never quote one in the other's table.
 - `research/notebooks/` is split by concern: `00_hillstrom_eda` is descriptive only,
   `01_hillstrom_randomization_ate` introduces the causal vocabulary (arm, SMD, ATE).
   Keep causal concepts out of `00`.

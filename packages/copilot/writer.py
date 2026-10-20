@@ -140,7 +140,11 @@ def write_brief(
             inputs={"chars": len(draft.text)},
         ) as span:
             report = validate(
-                draft.text, request.tool_runs, request.scenario, config.validator
+                draft.text,
+                request.tool_runs,
+                request.scenario,
+                config.validator,
+                score_kind=request.score_kind,
             )
             set_span_outputs(
                 span,

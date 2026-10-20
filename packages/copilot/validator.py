@@ -1,6 +1,6 @@
 """The [4] VALIDATE stage — deterministic grounding checks, never an LLM.
 
-Four rules (the numbering is the one ``docs/concepts.md`` §7 uses):
+Six rules (the numbering is the one ``docs/concepts.md`` §7 uses):
 
 - **V1 number-trace.** Every dollar amount, percentage/pp, unit-tagged count
   and signed effect estimate in the prose must match a number in the flattened
@@ -13,6 +13,9 @@ Four rules (the numbering is the one ``docs/concepts.md`` §7 uses):
   carries an interval the prose must contain interval phrasing.
 - **V4 sections.** Per intent, every header from
   :data:`packages.copilot.schemas.BRIEF_SECTIONS` must be present.
+- **V6 model semantics.** When the draft carries a score kind, the prose must
+  not miscast it: no probability language for an effect score, no effect
+  language for a response score (explicit contrasts excepted).
 
 The validator is the safety lever, not the model's intelligence: it checks
 facts, so it must be code. Tolerance and retry budget come from
@@ -23,6 +26,7 @@ from __future__ import annotations
 
 import re
 
+from packages.causal import catalog
 from packages.copilot.schemas import (
     BRIEF_SECTIONS,
     CampaignScenario,
@@ -172,8 +176,15 @@ def validate(
     tool_runs: list[ToolRun],
     scenario: CampaignScenario,
     config: ValidatorConfig,
+    score_kind: str | None = None,
 ) -> ValidationReport:
-    """Run V1–V4 over one draft; the report carries citations and failures."""
+    """Run V1–V6 over one draft; the report carries citations and failures.
+
+    ``score_kind`` enables V6, the model-semantics rule: when supplied, the
+    prose must not miscast the score (a response probability narrated as an
+    effect, or an effect narrated as a probability). ``None`` keeps V6 off —
+    the shape validator callers rely on.
+    """
     allowed: list[tuple[float, str]] = []
     has_interval_source = False
     for run in tool_runs:
@@ -242,4 +253,69 @@ def validate(
         detail="all sections present" if not missing else f"missing section(s): {missing}",
     )
 
-    return ValidationReport(checks=[v1, v2, v3, v4], citations=citations)
+    checks = [v1, v2, v3, v4]
+
+    # V6 — model semantics: never miscast the score. Conservative by design:
+    # a banned word fails only when the prose is not contrasting ("not a
+    # probability", "rather than an effect"), which is how a brief may honestly
+    # explain what the score is *not*.
+    if score_kind is not None:
+        failed_v6 = _model_semantics_violation(low, score_kind)
+        v6 = ValidationCheck(
+            rule="V6_model_semantics",
+            passed=failed_v6 is None,
+            detail=(
+                f"score kind {score_kind} narrated correctly"
+                if failed_v6 is None
+                else failed_v6
+            ),
+        )
+        checks.append(v6)
+
+    return ValidationReport(checks=checks, citations=citations)
+
+
+#: Phrases that miscast an effect score as a probability.
+_PROBABILITY_PHRASES: tuple[str, ...] = (
+    "probability",
+    "likelihood",
+    "likely to visit",
+    "likely to convert",
+)
+
+#: Phrases that miscast a probability score as a causal effect.
+_EFFECT_PHRASES: tuple[str, ...] = (
+    "causal effect",
+    "incremental effect",
+    "true uplift",
+)
+
+#: An explicit contrast ("not a probability", "NOT an incremental or causal
+#: effect", "rather than a likelihood", ...) excuses the vocabulary — the
+#: prose is *defining* the score against the miscast, which is honest. The
+#: short window stops a sentence boundary or an unrelated "not" from leaking
+#: the exemption into an actual miscast.
+_CONTRAST_RE = re.compile(
+    r"\b(?:not|rather than|instead of)\b[^.:;!?]{0,28}\b"
+    r"(?:causal|incremental|effect|probability|likelihood)\b"
+)
+
+
+def _model_semantics_violation(low: str, score_kind: str) -> str | None:
+    """V6 verdict text, or ``None`` when the prose stays inside its lane."""
+    contrast = _CONTRAST_RE.search(low) is not None
+    if score_kind in (catalog.SCORE_RESPONSE, catalog.SCORE_RELATIVE_UPLIFT):
+        hit = [p for p in _EFFECT_PHRASES if p in low]
+        if hit and not contrast:
+            return (
+                "a response/relative score must not be narrated as "
+                f"{hit}; contrast it explicitly if you mean to"
+            )
+    if score_kind in (catalog.SCORE_UPLIFT_EFFECT, catalog.SCORE_UPLIFT_EFFECT_INTERVAL):
+        hit = [p for p in _PROBABILITY_PHRASES if p in low]
+        if hit and not contrast:
+            return (
+                "an effect score must not be narrated as "
+                f"{hit}; contrast it explicitly if you mean to"
+            )
+    return None

@@ -10,7 +10,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from packages.causal import catalog
 from packages.causal.benchmark import BusinessAssumptions
+from packages.causal.registry import MODELS_DIR
 from packages.copilot import run_request
 from packages.copilot.planner import (
     HoldoutContext,
@@ -35,6 +37,7 @@ from packages.copilot.schemas import (
 )
 from packages.copilot.validator import extract_cited, validate
 from packages.copilot.writer import UNVERIFIED_MARKER, get_writer, write_brief
+from packages.datasets.hillstrom import RAW_PATH
 
 # --- fixtures and fakes ----------------------------------------------------
 
@@ -121,6 +124,14 @@ def context() -> HoldoutContext:
         feature_names=["x0", "x1", "x2", "x3"],
         assumptions=BusinessAssumptions.from_yaml(),
         meta={},
+        # Real contexts fill these from the registry sidecar; the synthetic
+        # fixture states the champion's semantics explicitly so prompts and
+        # packages carry the same SCORE MEANING the live app serves.
+        model_name="champion",
+        learner="response",
+        label="Response baseline",
+        score_kind="response_probability",
+        tier="champion",
     )
 
 
@@ -196,12 +207,22 @@ def test_gate_threshold_matrix_brief(config, context):
 
 def test_build_questions_shape():
     questions = build_questions()
-    assert set(questions) == {"intent", "policy_risk", "missing_inputs"}
+    assert set(questions) == {"intent", "policy_risk", "missing_inputs", "model"}
     assert questions["intent"]["type"] == "choice"
     assert "out_of_scope" in questions["intent"]["criteria"]  # always an other
     assert questions["policy_risk"]["type"] == "noul"
+    assert questions["model"]["type"] == "choice"
+    assert "none" in questions["model"]["criteria"]  # model question also has an escape
     for name, spec in questions.items():
         assert spec["name"] == name  # every question is named
+
+
+def test_build_questions_research_mode_unlocks_catalog_models():
+    normal = set(build_questions()["model"]["criteria"])
+    research = set(build_questions(research_mode=True)["model"]["criteria"])
+    assert {"champion", "dr-learner", "none"} <= normal
+    assert not ({"s-learner", "t-learner", "x-learner", "causal-forest"} & normal)
+    assert {"s-learner", "t-learner", "x-learner", "causal-forest"} <= research
 
 
 def test_parse_route_confidence_from_probabilities():
@@ -710,3 +731,139 @@ def test_seed_eval_offline_smoke(config, context):
     # the gate (live when AZURE_* is present, keyword fallback otherwise)
     # answers at least 80% of cases on the right path — documented quality
     assert report["summary"]["fast_path_accuracy"] >= 0.8
+
+
+# --- model resolution in the pipeline (plan §5 gate question) ----------------
+
+
+def _answers_with_model(intent="plan", model="dr-learner", conf=0.9):
+    answers = _answers(intent=intent, conf=0.9)
+    answers["model"] = {"type": "choice", "choice": model, "confidence": conf}
+    return answers
+
+
+def test_parse_route_reads_model_answer():
+    route = parse_route(_answers_with_model(model="dr-learner", conf=0.83))
+    assert route.intent is Intent.PLAN
+    assert route.model_choice == "dr-learner"
+    assert route.model_confidence == 0.83
+
+
+def test_parse_route_model_question_refusal_is_absorbed():
+    """A refusal on the auxiliary model question leaves the route usable."""
+    answers = _answers()
+    answers["model"] = {"type": "refusal"}
+    route = parse_route(answers)
+    assert route.model_choice is None and route.model_confidence is None
+    # ...while a refusal on a core question still poisons the whole route
+    core = _answers()
+    core["intent"] = {"type": "refusal"}
+    core["model"] = {"type": "choice", "choice": "dr-learner"}
+    with pytest.raises(ProviderError):
+        parse_route(core)
+
+
+def test_parse_route_none_choice_text_is_no_choice():
+    answers = _answers()
+    answers["model"] = {"type": "choice", "choice": "none", "confidence": 0.7}
+    route = parse_route(answers)
+    assert route.model_choice is None
+
+
+def test_route_question_passes_research_flag_to_state_and_questions():
+    """The gate's allow-list context matches the mode the caller asked for."""
+    class CaptureClient:
+        model = "capture"
+
+        def decide(self, state, questions):
+            assert "Research Mode is ON" in state["available_context"]
+            assert "s-learner" in questions["model"]["criteria"]
+            return {"answers": _answers_with_model(model="none")}
+
+    route = route_question(PLAN_Q, CaptureClient(), research_mode=True)
+    assert route.model_choice is None  # "none" is the escape answer
+
+
+def test_keyword_fallback_suggests_dr_on_uplift_vocabulary():
+    route = keyword_fallback_route("Who are the persuadables with the biggest incremental uplift?")
+    assert route.router == "keyword_fallback"
+    assert route.model_choice == "dr-learner"  # a suggestion — resolver validates
+    plain = keyword_fallback_route("Plan a $1,000 campaign for me.")
+    assert plain.model_choice is None
+
+
+def test_run_request_gate_choice_names_the_model(config, context, monkeypatch):
+    from packages.copilot import selection
+
+    monkeypatch.setattr(selection, "is_registered", lambda name, models_dir=None: True)
+    package = run_request(
+        PLAN_Q,
+        config=config,
+        client=FakeDecisions(_answers_with_model(model="dr-learner")),
+        writer_provider="template",
+        context=context,  # injected context keeps the test offline
+    )
+    assert package.fast_path == "brief"
+    # the injected context's model is what scored; the resolver's story rides
+    # alongside it and the trace records both
+    assert package.model_selector == "gate"
+    assert package.model_confidence == 0.9
+    assert package.score_kind == "response_probability"
+
+
+def test_run_request_no_model_answer_falls_back(config, context):
+    package = run_request(
+        PLAN_Q, config=config, client=FakeDecisions(_answers()), writer_provider="template",
+        context=context,
+    )
+    assert package.model_name == "champion"  # synthetic context meta is empty
+    assert package.model_selector == "fallback"
+    assert package.research_mode is False
+
+
+def test_run_request_explain_intent_defaults_champion(config, context, monkeypatch):
+    from packages.copilot import selection
+
+    monkeypatch.setattr(selection, "is_registered", lambda name, models_dir=None: True)
+    package = run_request(
+        "Who are the persuadables?",
+        config=config,
+        client=FakeDecisions(_answers_with_model(intent="explain")),
+        writer_provider="template",
+        context=context,
+    )
+    assert package.model_selector == "default"
+
+
+def test_run_request_bad_pin_raises_before_the_gate(config, context):
+    with pytest.raises(ValueError, match="unknown model"):
+        run_request(
+            PLAN_Q, config=config, client=FakeDecisions(_answers()),
+            writer_provider="template", model="made-up-name", context=context,
+        )
+
+
+@pytest.mark.skipif(
+    not RAW_PATH.exists() or not (MODELS_DIR / "dr-learner.joblib").exists(),
+    reason="needs the raw CSV and a registered dr-learner artifact",
+)
+def test_run_request_manual_pin_answers_with_dr_learner(config):
+    """The real user path: pin the DR challenger, get DR numbers and naming."""
+    package = run_request(
+        PLAN_Q,
+        config=config,
+        client=FakeDecisions(_answers()),
+        writer_provider="template",
+        model="dr-learner",
+    )
+    assert package.fast_path == "brief"
+    assert package.model_name == "dr-learner"
+    assert package.model_learner == catalog.get_spec("dr-learner").learner
+    assert package.model_selector == "manual"
+    assert package.score_kind == "uplift_effect"
+    compare = next(r for r in package.tool_runs if r.name == "compare_scenarios")
+    dr_label = catalog.get_spec("dr-learner").label
+    ranked = [s for s in compare.output["scenarios"] if s["strategy"].endswith(" ranking")]
+    assert ranked[0]["strategy"] == f"{dr_label} ranking"
+    assert f"The {dr_label} ranking is estimated to deliver" in package.prose
+

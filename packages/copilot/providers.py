@@ -33,6 +33,7 @@ from typing import Any, ClassVar
 import requests
 
 from packages.causal.benchmark import BusinessAssumptions
+from packages.causal.catalog import score_meaning
 from packages.copilot.schemas import (
     BRIEF_SECTIONS,
     DraftRequest,
@@ -149,6 +150,10 @@ responds more, never WHY.
 4. If a tool in the DATA failed, write "[tool unavailable]" in that spot; do \
 not quote the error text and do not fill the gap with a number.
 5. Currency is USD everywhere. Keep depth figures as percentages.
+6. Score semantics from the SCORE MEANING line are binding: a response score is \
+a likelihood and must never be described as an incremental or causal effect; an \
+uplift/effect score is an estimated incremental effect and must never be \
+described as a probability, chance, or likelihood of converting.
 
 Write in plain markdown for a marketing decision-maker. Use exactly these \
 section headers, in this order: {sections}. Keep it under about 400 words.\
@@ -191,9 +196,17 @@ def build_prompt(request: DraftRequest) -> ChatPrompt:
     sections = " / ".join(s.title() for s in BRIEF_SECTIONS[request.intent])
     system = SYSTEM_PROMPT.format(sections=sections)
 
+    model_block = ""
+    if request.model_name:
+        model_block = (
+            f"MODEL: {request.model_label or request.model_name} "
+            f"({request.model_name})\n"
+            f"SCORE MEANING: {score_meaning(request.score_kind)}\n"
+        )
     user = (
         f"QUESTION: {request.question}\n"
         f"INTENT: {request.intent.value}\n"
+        f"{model_block}"
         f"DATA (JSON, computed by the tools - quote these numbers verbatim):\n"
         f"{json.dumps(_tool_payload(request), indent=1, default=str)}\n"
     )
@@ -256,6 +269,11 @@ def _fmt_assumptions(request: DraftRequest) -> str:
         "- value per conversion and cost per contact come from "
         "configs/business_assumptions.yaml (fixed, not estimated per request)"
     ]
+    if request.model_name:
+        lines.append(
+            f"- targeting model: {request.model_label or request.model_name} "
+            f"({request.model_name}); its score is {score_meaning(request.score_kind)}"
+        )
     lines += [f"- {a}" for a in request.scenario.assumptions_used]
     return "\n".join(lines)
 
@@ -277,6 +295,7 @@ def _render_plan_or_whatif(request: DraftRequest, tools: dict[str, dict[str, Any
     curve = tools.get("optimize_budget") or {}
     card = tools.get("get_model_card") or {}
     design = tools.get("design_ab_test") or {}
+    label = request.model_label or request.model_name or "champion"
     assumptions_block = f"## Assumptions\n{_fmt_assumptions(request)}\n"
 
     if request.intent is Intent.WHAT_IF:
@@ -293,10 +312,10 @@ def _render_plan_or_whatif(request: DraftRequest, tools: dict[str, dict[str, Any
         earns = (
             f"## What it earns\n"
             f"- changed input: {delta.get('changed', 'the stated assumption')}\n"
-            f"- champion profit, base: {_usd(champ_b.get('profit_usd', 0.0))} "
+            f"- {label} profit, base: {_usd(champ_b.get('profit_usd', 0.0))} "
             f"(95% interval [{_usd(champ_b.get('profit_ci_low_usd', 0.0))}, "
             f"{_usd(champ_b.get('profit_ci_high_usd', 0.0))}])\n"
-            f"- champion profit, variant: {_usd(champ_v.get('profit_usd', 0.0))} "
+            f"- {label} profit, variant: {_usd(champ_v.get('profit_usd', 0.0))} "
             f"(95% interval [{_usd(champ_v.get('profit_ci_low_usd', 0.0))}, "
             f"{_usd(champ_v.get('profit_ci_high_usd', 0.0))}])\n"
             f"- change in profit: {_usd(delta.get('profit_delta_usd', 0.0))}\n"
@@ -316,7 +335,7 @@ def _render_plan_or_whatif(request: DraftRequest, tools: dict[str, dict[str, Any
         )
         if point:
             earns = (
-                f"## What it earns\nThe champion ranking is estimated to deliver "
+                f"## What it earns\nThe {label} ranking is estimated to deliver "
                 f"{point.get('incremental_conversions', 0.0)} incremental conversions "
                 f"(standard error {point.get('incremental_conversions_se', 0.0)}) and a profit of "
                 f"{_usd(point.get('profit_usd', 0.0))} (95% interval "
@@ -353,13 +372,22 @@ def _render_plan_or_whatif(request: DraftRequest, tools: dict[str, dict[str, Any
                 f"\nModel: {card.get('name', 'champion')} "
                 f"({card.get('learner', '?')} on {card.get('target', '?')}).\n"
             )
+            if card.get("tier") == "research":
+                tail += (
+                    " This is a research-only model: treat the brief as exploration, "
+                    "not a live plan.\n"
+                )
     return recommendation + earns + uncertainties + assumptions_block + tail
 
 
 def _champion(comparison: dict[str, Any]) -> dict[str, Any]:
-    """The champion row of a ScenarioComparison dump (empty dict if absent)."""
+    """The ranked-model row of a ScenarioComparison dump (empty dict if absent).
+
+    Strategy names follow the model in play ("<label> ranking"), so the match
+    is on the suffix, not the literal champion name.
+    """
     for s in comparison.get("scenarios", []):
-        if s.get("strategy") == "champion ranking":
+        if str(s.get("strategy", "")).endswith(" ranking"):
             return s
     return {}
 

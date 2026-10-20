@@ -27,6 +27,11 @@ class CopilotRequest(BaseModel):
     question: str
     #: Writer override for the ablation toggle in the UI; None uses configs/copilot.yaml.
     provider: WriterProvider | None = None
+    #: Pin a ranking model ("use this model" in the Model Lab). None lets the
+    #: gate choose for plan/what-if; an invalid pin is a 422, never a swap.
+    model: str | None = None
+    #: Research Mode widens the allow-list to S/T/X/forest (locked otherwise).
+    research_mode: bool = False
 
 
 @router.post("")
@@ -35,6 +40,8 @@ def answer(payload: CopilotRequest, db: DbDep) -> dict:
         pkg = run_request(
             payload.question,
             writer_provider=payload.provider,
+            model=payload.model,
+            research_mode=payload.research_mode,
             mlflow_trace=settings.mlflow_tracing,
         )
     except ProviderError as err:
@@ -42,11 +49,19 @@ def answer(payload: CopilotRequest, db: DbDep) -> dict:
             status_code=503,
             detail=f"writer provider unavailable: {err}",
         ) from err
+    except ValueError as err:
+        # A pinned model that is unknown, unregistered, or research-only
+        # without Research Mode — the message names exactly why.
+        raise HTTPException(status_code=422, detail=str(err)) from err
 
     # Persist scenario + brief (best-effort; never blocks the response).
     scenario = Scenario(
         question=payload.question,
         intent=str(getattr(pkg, "intent", "plan")),
+        model_name=pkg.model_name,
+        model_selector=pkg.model_selector,
+        score_kind=pkg.score_kind,
+        research_mode=payload.research_mode,
     )
     db.add(scenario)
     db.flush()
@@ -70,7 +85,15 @@ def answer(payload: CopilotRequest, db: DbDep) -> dict:
         AuditLog(
             kind="copilot",
             name="run_request",
-            payload=json.dumps({"question": payload.question, "trace_id": pkg.trace_id}),
+            payload=json.dumps(
+                {
+                    "question": payload.question,
+                    "trace_id": pkg.trace_id,
+                    "model": pkg.model_name,
+                    "model_selector": pkg.model_selector,
+                    "research_mode": payload.research_mode,
+                }
+            ),
         )
     )
     db.commit()

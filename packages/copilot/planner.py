@@ -2,11 +2,13 @@
 
 Pure Python on purpose: money is parsed out of the question with rules (never
 an LLM), every default is documented and flagged in ``assumptions_used``, and
-the champion artifact is loaded **once per process** and cached — the heavy
-work (model load, split rebuild, policy-tree fit) happens at boot, not per
-request. Every tool's output — or its failure — becomes a :class:`ToolRun` the
-writer can quote; a failed tool can never be papered over with an invented
-number.
+the requested artifact is loaded **once per process** and cached — the heavy
+work (model load, split rebuild, policy-tree fit) happens at first use, not
+per request. The split data and the policy tree are shared across models; only
+the scores are per artifact, so serving a second model refits nothing.
+
+Every tool's output — or its failure — becomes a :class:`ToolRun` the writer
+can quote; a failed tool can never be papered over with an invented number.
 """
 
 from __future__ import annotations
@@ -18,12 +20,12 @@ from typing import Any
 
 import numpy as np
 
+from packages.causal import catalog
 from packages.causal.benchmark import BusinessAssumptions
-from packages.causal.features import build_features, encode_splits, make_splits
+from packages.causal.holdout import build_holdout
 from packages.causal.registry import load_model
 from packages.copilot.providers import tool_run, trim_tool_output
 from packages.copilot.schemas import CampaignScenario, CopilotConfig, Intent, ToolRun
-from packages.datasets.hillstrom import fetch_hillstrom
 from packages.decision import (
     compare_scenarios,
     design_ab_test,
@@ -170,8 +172,14 @@ def extract_scenario(
 
 
 @dataclass
-class HoldoutContext:
-    """Champion + holdout + assumptions, built once and reused per request."""
+class HoldoutData:
+    """The model-agnostic split: arrays, assumptions, and the policy cache.
+
+    Every per-model :class:`HoldoutContext` wraps one of these, so serving a
+    second ranking model refits nothing heavy: the split is rebuilt never, and
+    the segment policy tree is fitted once on the shared ``(X_tr, t_tr, y_tr)``
+    and graded once on the shared holdout rows.
+    """
 
     X_tr: np.ndarray
     t_tr: np.ndarray
@@ -180,11 +188,9 @@ class HoldoutContext:
     t_te: np.ndarray
     y_visit_te: np.ndarray
     y_money_te: np.ndarray
-    score: np.ndarray
     zip_code_te: np.ndarray
     feature_names: list[str]
     assumptions: BusinessAssumptions
-    meta: dict[str, Any]
     _profile: SegmentProfile | None = field(default=None, repr=False)
 
     @property
@@ -216,44 +222,163 @@ class HoldoutContext:
             )
         return self._profile
 
+
+#: Split data keyed by seed — every catalog artifact trains on 42, so all six
+#: contexts share one ``HoldoutData`` in practice.
+_DATA_CACHE: dict[int, HoldoutData] = {}
+
+
+def get_holdout_data(seed: int = 42, refresh: bool = False) -> HoldoutData:
+    """The shared split for ``seed`` — built once per process."""
+    cached = _DATA_CACHE.get(seed)
+    if cached is None or refresh:
+        arrays = build_holdout(seed)
+        cached = HoldoutData(
+            X_tr=arrays.X_tr,
+            t_tr=arrays.t_tr,
+            y_tr=arrays.y_tr,
+            X_te=arrays.X_te,
+            t_te=arrays.t_te,
+            y_visit_te=arrays.y_visit_te,
+            y_money_te=arrays.y_money_te,
+            zip_code_te=arrays.zip_code_te,
+            feature_names=list(arrays.feature_names),
+            assumptions=BusinessAssumptions.from_yaml(),
+        )
+        _DATA_CACHE[seed] = cached
+    return cached
+
+
+@dataclass
+class HoldoutContext:
+    """One registered model + the shared holdout, cached per process.
+
+    Construct one per artifact via :func:`build_context`; the arrays and the
+    (expensive) segment profile come from the shared :class:`HoldoutData`, so
+    only ``score`` — and the metadata describing what that score means — is
+    per model.
+    """
+
+    X_tr: np.ndarray
+    t_tr: np.ndarray
+    y_tr: np.ndarray
+    X_te: np.ndarray
+    t_te: np.ndarray
+    y_visit_te: np.ndarray
+    y_money_te: np.ndarray
+    score: np.ndarray
+    zip_code_te: np.ndarray
+    feature_names: list[str]
+    assumptions: BusinessAssumptions
+    meta: dict[str, Any]
+    _profile: SegmentProfile | None = field(default=None, repr=False)
+    # Model semantics (from packages/causal/catalog.py via the sidecar meta).
+    # Defaults keep synthetic test contexts valid; real contexts fill them in.
+    model_name: str = "champion"
+    learner: str | None = None
+    label: str | None = None
+    score_kind: str | None = None
+    tier: str = "champion"
+    supports_intervals: bool = False
+    research_only: bool = False
+    data: HoldoutData | None = field(default=None, repr=False)
+
+    @property
+    def n_test(self) -> int:
+        return int(len(self.y_money_te))
+
+    @property
+    def baseline_visit_rate(self) -> float:
+        """Control-arm visit rate on the holdout — the power analysis baseline."""
+        control = self.t_te == 0
+        return float(self.y_visit_te[control].mean())
+
+    def segment_profile(self) -> SegmentProfile:
+        """The policy tree — the shared fit when the context wraps shared data."""
+        if self._profile is None:
+            if self.data is not None:
+                self._profile = self.data.segment_profile()
+            else:
+                self._profile = get_segment_profile(
+                    self.X_tr,
+                    self.t_tr,
+                    self.y_tr,
+                    self.X_te,
+                    self.t_te,
+                    self.y_visit_te,
+                    feature_names=self.feature_names,
+                    y_eval_money=self.y_money_te,
+                    fairness_col=self.zip_code_te,
+                    max_depth=3,
+                    min_samples_leaf=500,
+                    random_state=42,
+                )
+        return self._profile
+
     def model_card(self) -> ModelCard:
-        return get_model_card("champion")
+        """This context's card — per artifact, never champion's text."""
+        return get_model_card(self.model_name)
 
 
-def build_context() -> HoldoutContext:
-    """Load the registered champion and rebuild *its* split (same seed)."""
-    model, meta = load_model("champion")
-    df = fetch_hillstrom(arm="mens")
-    X, y, t = build_features(df, target="visit")
-    splits = make_splits(X, y, t, random_state=int(meta["random_state"]))
-    enc, feature_names = encode_splits(splits)
-    X_tr, y_tr, t_tr = enc["train"]
-    X_te, y_te, t_te = enc["test"]
+def _label_for(model_name: str, meta: dict[str, Any]) -> str:
+    """Display label: the sidecar first, then the catalog as the fallback."""
+    label = meta.get("label")
+    if label:
+        return str(label)
+    spec = catalog.spec_for_learner(str(meta.get("learner", "response")))
+    if spec is not None:
+        return spec.label
+    return model_name
+
+
+def build_context(model_name: str = "champion") -> HoldoutContext:
+    """Load a registered model and rebuild *its* split (same seed)."""
+    model, meta = load_model(model_name)
+    seed = int(meta.get("random_state", 42))
+    data = get_holdout_data(seed)
+    learner = str(meta.get("learner", "response"))
+    spec = catalog.spec_for_learner(learner)
     return HoldoutContext(
-        X_tr=X_tr.to_numpy(dtype=float),
-        t_tr=t_tr.to_numpy(dtype=int),
-        y_tr=y_tr.to_numpy(dtype=float),
-        X_te=X_te.to_numpy(dtype=float),
-        t_te=t_te.to_numpy(dtype=int),
-        y_visit_te=y_te.to_numpy(dtype=float),
-        y_money_te=df.loc[X_te.index, "conversion"].to_numpy(dtype=float),
-        score=np.asarray(model.predict(X_te.to_numpy())).ravel(),
-        zip_code_te=df.loc[X_te.index, "zip_code"].to_numpy(),
-        feature_names=list(feature_names),
-        assumptions=BusinessAssumptions.from_yaml(),
+        X_tr=data.X_tr,
+        t_tr=data.t_tr,
+        y_tr=data.y_tr,
+        X_te=data.X_te,
+        t_te=data.t_te,
+        y_visit_te=data.y_visit_te,
+        y_money_te=data.y_money_te,
+        score=np.asarray(model.predict(data.X_te)).ravel(),
+        zip_code_te=data.zip_code_te,
+        feature_names=list(data.feature_names),
+        assumptions=data.assumptions,
         meta=meta,
+        model_name=model_name,
+        learner=learner,
+        label=_label_for(model_name, meta),
+        score_kind=catalog.clean_score_kind(meta.get("score_kind"), learner),
+        tier=catalog.clean_tier(meta.get("tier"), learner),
+        supports_intervals=catalog.clean_bool(
+            meta.get("supports_intervals"),
+            bool(spec.supports_intervals if spec else False),
+        ),
+        research_only=catalog.clean_bool(
+            meta.get("research_only"),
+            bool(spec.research_only if spec else False),
+        ),
+        data=data,
     )
 
 
-_CONTEXT: HoldoutContext | None = None
+#: One cached context per artifact name — the split cache below it is shared.
+_CONTEXTS: dict[str, HoldoutContext] = {}
 
 
-def get_context(refresh: bool = False) -> HoldoutContext:
-    """The process-wide context: build on first use, cache after (boot cost)."""
-    global _CONTEXT
-    if _CONTEXT is None or refresh:
-        _CONTEXT = build_context()
-    return _CONTEXT
+def get_context(model_name: str = "champion", refresh: bool = False) -> HoldoutContext:
+    """The process-wide context for ``model_name``: build on first use."""
+    cached = _CONTEXTS.get(model_name)
+    if cached is None or refresh:
+        cached = build_context(model_name)
+        _CONTEXTS[model_name] = cached
+    return cached
 
 
 # --- tool dispatch ---------------------------------------------------------
@@ -273,8 +398,9 @@ def _effective_depth(
 
 
 def _champion_row(comparison: dict[str, Any]) -> dict[str, Any]:
+    """The ranked-model row: every compare output names it '<model> ranking'."""
     for s in comparison.get("scenarios", []):
-        if s.get("strategy") == "champion ranking":
+        if str(s.get("strategy", "")).endswith(" ranking"):
             return s
     return {}
 
@@ -301,6 +427,9 @@ def run_tools(
 ) -> list[ToolRun]:
     """Dispatch to the Day-4 tools for this intent; failures become ToolRuns."""
     runs: list[ToolRun] = []
+    # Scenario names follow the model in play ("Response baseline ranking");
+    # the arithmetic is identical for any ranking.
+    rank_label = context.label or context.model_name
     base_assumptions = context.assumptions
     cpc = scenario.cost_per_contact_usd or base_assumptions.cost_per_contact_usd
     effective = (
@@ -355,6 +484,7 @@ def run_tools(
                 assumptions=effective,
                 depth=depth,
                 budget_usd=scenario.budget_usd,
+                rank_label=rank_label,
             ),
         )
         _run("design_ab_test", _design_call(scenario, context, config))
@@ -379,6 +509,7 @@ def run_tools(
                 assumptions=base_assumptions,
                 depth=base_depth,
                 budget_usd=scenario.budget_usd,
+                rank_label=rank_label,
             ),
         )
         variant_run = _run(
@@ -390,6 +521,7 @@ def run_tools(
                 assumptions=effective,
                 depth=variant_depth,
                 budget_usd=scenario.budget_usd,
+                rank_label=rank_label,
             ),
         )
         if base_run.ok and variant_run.ok and base_run.output and variant_run.output:

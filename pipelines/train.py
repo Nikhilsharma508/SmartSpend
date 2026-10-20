@@ -1,4 +1,4 @@
-"""Train and register the *finalized* model — the champion — and nothing else.
+"""Train and register a *finalized* model with full provenance.
 
     uv run python pipelines/train.py                        # response baseline on visit, seed 42
     uv run python pipelines/train.py --name alt-dr --learner dr
@@ -10,7 +10,10 @@ so the numbers written into the model's metadata trace to the ledger in
 stays reserved for calibration and ``test`` is looked at exactly once, which is
 the same discipline the benchmark follows.
 
-Writes ``models/<name>.joblib`` + ``models/<name>.meta.json`` (git-ignored;
+Every artifact gets its semantics (tier, score meaning, Research-Mode
+restrictions) from the single source of truth in ``packages/causal/catalog.py``
+— the same mapping ``pipelines/train_all.py`` loops over. Writes
+``models/<name>.joblib`` + ``models/<name>.meta.json`` (git-ignored;
 regenerable from this script plus the checksum-verified raw data). Day 6's API
 loads the registered model and never trains.
 """
@@ -36,6 +39,7 @@ from packages.causal.benchmark import (  # noqa: E402
     incremental_conversions_at_k,
     profit_at_k,
 )
+from packages.causal.catalog import MODEL_SPECS, get_spec, spec_for_learner  # noqa: E402
 from packages.causal.features import build_features, encode_splits, make_splits  # noqa: E402
 from packages.causal.learners import LEARNER_NAMES, LearnerName, make_learner  # noqa: E402
 from packages.causal.metrics import qini_auc, uplift_at_k  # noqa: E402
@@ -45,6 +49,9 @@ from packages.datasets.hillstrom import FEATURES, RAW_SHA256, fetch_hillstrom  #
 #: Distributions whose versions are recorded in the metadata sidecar, so a
 #: future load can tell "same artifact" from "artifact from another stack".
 TRACKED_PACKAGES = ("numpy", "pandas", "scikit-learn", "lightgbm", "causalml", "econml")
+
+#: Artifact stems the catalog already names (packages/causal/catalog.py).
+_CATALOG_NAMES = {s.name for s in MODEL_SPECS}
 
 
 def _package_versions() -> dict[str, str | None]:
@@ -153,6 +160,28 @@ def train_and_register(
         "git_commit": _git_commit(),
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "registered_by": "pipelines/train.py",
+        # Semantics block from the model catalog (packages/causal/catalog.py):
+        # what tier this artifact holds and what its score means. Unknown
+        # artifacts keep their learner's semantics; a fabricated artifact name
+        # never silently becomes "the champion".
+        "label": (
+            get_spec(name).label
+            if name in _CATALOG_NAMES
+            else getattr(spec_for_learner(learner), "label", learner)
+        ),
+        "tier": getattr(spec_for_learner(learner), "tier", "research"),
+        "score_kind": getattr(spec_for_learner(learner), "score_kind", "relative_uplift"),
+        "supports_intervals": bool(
+            getattr(spec_for_learner(learner), "supports_intervals", False)
+        ),
+        "research_only": bool(getattr(spec_for_learner(learner), "research_only", True)),
+        "use_case": (
+            getattr(
+                spec_for_learner(learner),
+                "use_case",
+                "Manually trained artifact; see the model card before use.",
+            )
+        ),
     }
 
     path = save_model(model, name, meta=meta, models_dir=models_dir)

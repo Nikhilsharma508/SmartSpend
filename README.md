@@ -62,15 +62,22 @@ Day 4 — decision layer: registry, profit curve, multi-treatment, policy tree, 
 - [x] Decision notebook — [`research/notebooks/04_hillstrom_decision_layer.ipynb`](research/notebooks/04_hillstrom_decision_layer.ipynb): profit curve (break-even 2%, peak 30% $858 with its CI), scenario table, multi-arm IPW, policy tree, zip_code fairness audit, power sizing
 - [x] Fairness audit — real contact disparity: Urban 59% vs 41% population share (zip-proxy split); group *effects* overlap cleanly; flagged in the model card, escalated to Day 6
 
-Day 5 — campaign copilot: gate (Decisions API) → plan (Day-4 tools) → write (pluggable LLM) → validate (V1–V4).
+Day 5 — campaign copilot: gate (Decisions API) → plan (Day-4 tools) → write (pluggable LLM) → validate (V1–V6).
 
-- [x] Copilot pipeline — [`packages/copilot/`](packages/copilot/): router (3 named questions on one API call, calibrated thresholds, keyword fallback), planner (rule-based scenario extraction, cached holdout context, per-intent tool dispatch), providers (Decisions client; template / ollama / neurometric writers), validator (number-trace with citations, USD-only, causal-language rubric, section contract), MLflow GenAI trace per request
-- [x] Config — [`configs/copilot.yaml`](configs/copilot.yaml): thresholds (incl. `t_oos_confidence`), 1% trace tolerance, writer pick, prompt v2
+- [x] Copilot pipeline — [`packages/copilot/`](packages/copilot/): router (4 named questions on one API call — intent, policy risk, missing inputs, model suggestion — calibrated thresholds, keyword fallback), planner (rule-based scenario extraction, per-model holdout contexts, per-intent tool dispatch), deterministic model resolver ([`packages/copilot/selection.py`](packages/copilot/selection.py): pin → gate ≥ `t_model_confidence` → champion fallback, Research-Modes aware), providers (Decisions client; template / ollama / neurometric writers), validator (number-trace with citations, USD-only, causal-language rubric, section contract, score-semantics rule V6), MLflow GenAI trace per request
+- [x] Config — [`configs/copilot.yaml`](configs/copilot.yaml): thresholds (incl. `t_oos_confidence`, `t_model_confidence`), 1% trace tolerance, writer pick, prompt v3
 - [x] Seed eval — [`evals/seed_cases.yaml`](evals/seed_cases.yaml) (15 labelled cases) + [`evals/run_seed_eval.py`](evals/run_seed_eval.py) (fast-path/intent/tool accuracy, pass@1/2, p50/p95)
 - [x] Copilot notebook — [`research/notebooks/05_hillstrom_copilot.ipynb`](research/notebooks/05_hillstrom_copilot.ipynb): live gate, 3-writer comparison on one brief, 4 use cases end-to-end, seed eval, validator torture (5/5 caught), fast-path timing, [`day5_copilot_latency.png`](docs/figures/day5_copilot_latency.png)
 - [x] Live calibration — fast-path 1.00, intent/tools 1.00 on the seed set; briefs ~8 s total (ollama ~3.6 s of it), fast paths ~1.2 s gate-only; first-draft validator pass 0.44–0.78 → ~0.5–1.0 after the one rewrite
 
-Days 6–7: see [`ROADMAP.md`](ROADMAP.md).
+Day 6 — model catalog + planner web app.
+
+- [x] Model catalog — [`packages/causal/catalog.py`](packages/causal/catalog.py): six registered learners (champion / DR / S / T / X / causal-forest) with tier, score kind, interval support, research-only flag and use case; registered as artifacts by [`pipelines/train_all.py`](pipelines/train_all.py) (idempotent; sidecars carry the semantics fields or the loader refuses)
+- [x] Model-aware API — [`apps/api/app/api/v1/models.py`](apps/api/app/api/v1/models.py) (`/models`, `/models/compare`, `/models/{name}`) + `?model=&research_mode=` on overview and segments; unknown model → 404, research-only without Research Mode → 422
+- [x] Web Model lab — [`apps/web/src/pages/models-page.tsx`](apps/web/src/pages/models-page.tsx): tier badges, Research Mode toggle, per-model select, same-rows comparison table; model pin on the Copilot page; dynamic model labels and `<model> ranking` rows app-wide
+- [x] Multi-model MLflow — one run per registered model per provenance digest (`pipelines/log_mlflow.py`, idempotent) + GenAI traces tagged with `ml.model` / `model.selector` / `research.mode`
+
+Days 7+: see [`ROADMAP.md`](ROADMAP.md).
 
 ## Datasets
 
@@ -89,6 +96,9 @@ Requires [`uv`](https://docs.astral.sh/uv/). Python is pinned to **3.11**
 ```bash
 uv sync                              # create .venv and install everything
 uv run python pipelines/download.py  # fetch the raw Hillstrom CSV if missing, then verify
+uv run python pipelines/train_all.py # train + register all six catalog models (skips existing)
+npm run start                        # FastAPI :8000 + web :5173 — Model lab, planner, copilot
+                                     #   (builds the web app; needs node/pnpm on PATH — mise shims)
 uv run jupyter lab                   # open research/notebooks/
 ```
 
@@ -194,6 +204,21 @@ the number-trace 0.44–0.78 of the time and the rewrite closes most of the
 rest — the validator, not the model, is what makes the brief trustworthy.
 Full numbers in [`docs/concepts.md`](docs/concepts.md).
 
+**Day 6 (model catalog + web app):** every benchmark learner becomes a
+**registered artifact** — `pipelines/train_all.py` fits all six catalog models
+(response champion, DR, S/T/X, causal-forest) with sidecars that must state
+their semantics (tier, score kind, intervals, research-only), and the app
+serves them from a **Model lab**: pick a model and every page (planner,
+segments, test-design, copilot) re-computes from it, Research Mode gates the
+weak tiers behind an explicit toggle, and the copilot's gate suggests a model
+that a deterministic resolver applies (pin → gate ≥ 0.60 → champion fallback).
+On the seed-42 split each artifact posts to file, the response champion leads
+profit ($857.60), the forest lands second ($802.63) and the T-learner goes
+**negative** (−$70.69) — which is exactly why research-only exists. Those
+sidecar numbers audit the deployed artifacts; selection claims still come from
+the 10-seed benchmark, never the sidecars. Full catalog + rules in
+[`docs/concepts.md`](docs/concepts.md) §9.
+
 ## Repo structure
 
 ```text
@@ -206,13 +231,14 @@ Full numbers in [`docs/concepts.md`](docs/concepts.md).
 ├── configs/           # business assumptions and model config YAML
 ├── docs/              # dataset specs, model card, ADRs
 ├── evals/             # copilot eval cases + runner (Day 5–6)
-├── apps/              # FastAPI service + React frontend (Day 6)
-├── infra/             # Docker / compose
+├── apps/              # FastAPI service + React frontend (Day 6, incl. the Model lab)
+├── scripts/           # npm-run helpers: setup / start / delete / mlflow
 └── .github/workflows/ # CI: lint, types, tests, eval smoke run
 ```
 
 Boundaries that keep it honest: notebooks are research only; reusable code lives in
-`packages/`; the API only ever loads a registered model, never trains.
+`packages/`; the API only ever loads registered models (the catalog, never training);
+and the deterministic resolver, not a prompt, decides which model answers.
 
 ## Risks and limitations
 

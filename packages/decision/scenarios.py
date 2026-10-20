@@ -34,19 +34,24 @@ def compare_scenarios(
     assumptions: BusinessAssumptions | None = None,
     depth: float = 0.3,
     budget_usd: float | None = None,
+    rank_label: str | None = None,
 ) -> ScenarioComparison:
     """Evaluate four strategies at one budget on the holdout.
 
     Parameters
     ----------
     y_money, score, t:
-        Money outcome, champion ranking score, treatment — holdout rows.
+        Money outcome, ranking score, treatment — holdout rows.
     depth:
         Targeting depth for the budget-matched strategies; the budget defaults
         to what that depth costs (``n_targeted * cost_per_contact``).
     budget_usd:
         Explicit budget override. ``target_all`` is marked infeasible when the
         budget cannot cover contacting everyone.
+    rank_label:
+        Name for the ranked strategy ("DR uplift learner ranking"); None keeps
+        the historical "champion ranking" label. The *strategy name* is a
+        label only — the mathematics is identical for any ranking.
     """
     a = _assumptions(assumptions)
     y = np.asarray(y_money, dtype=float)
@@ -54,6 +59,7 @@ def compare_scenarios(
     n = len(y)
     n_k = max(int(round(depth * n)), 1)
     budget = float(budget_usd) if budget_usd is not None else n_k * a.cost_per_contact_usd
+    ranked_name = f"{rank_label} ranking" if rank_label else "champion ranking"
 
     def _point(n_targeted: int, incr: float, se: float) -> tuple[float, float, float]:
         profit = a.value_per_conversion_usd * incr - a.cost_per_contact_usd * n_targeted
@@ -61,7 +67,9 @@ def compare_scenarios(
         hi = a.value_per_conversion_usd * (incr + Z_95 * se) - a.cost_per_contact_usd * n_targeted
         return float(profit), float(lo), float(hi)
 
-    # Champion: top-n_k by score, treated-minus-control inside the targeted set.
+    # Ranked strategy: top-n_k by score, treated-minus-control inside the set.
+    # The strategy *name* follows the ranking model in play; the arithmetic is
+    # unchanged — comparing the ranking against the honest alternatives.
     order = np.argsort(-np.asarray(score, dtype=float))
     y_k, t_k = y[order][:n_k], t_arr[order][:n_k]
     treated_k = t_k == 1
@@ -69,7 +77,7 @@ def compare_scenarios(
     incr_champ = diff * n_k
     p, lo, hi = _point(n_k, incr_champ, se_rate * n_k)
     champion = Scenario(
-        strategy="champion ranking",
+        strategy=ranked_name,
         n_targeted=n_k,
         incremental_conversions=round(float(incr_champ), 2),
         profit_usd=round(p, 2),

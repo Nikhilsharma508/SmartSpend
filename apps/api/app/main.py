@@ -17,11 +17,12 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=warm_overview, daemon=True, name="overview-warmup").start()
 
-    # Best-effort: register the champion in MLflow on boot (no-op once logged).
+    # Best-effort: register the catalog models in MLflow on boot (no-op once
+    # logged, one run per artifact per metadata digest).
     try:
-        from packages.tracking.mlflow import log_champion
+        from packages.tracking.mlflow import log_registered_models
 
-        log_champion()
+        log_registered_models()
     except Exception:  # noqa: BLE001
         pass
     yield
