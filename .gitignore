@@ -33,7 +33,9 @@ data/app/
 # ---- MLflow / model artifacts ----
 mlruns/
 mlartifacts/
-models/
+# Root-only: the registered joblib artifacts. Without the leading slash this
+# also swallowed apps/api/app/models/ (the SQLAlchemy package).
+/models/
 
 # ---- Copilot traces (one JSONL row per request stage; Day-6 eval reads locally) ----
 traces/

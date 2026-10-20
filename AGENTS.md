@@ -41,6 +41,13 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   && pnpm -C apps/web test         # web quality gates before any commit (then build)
 ```
 
+- **Ports are strict and self-healing.** `npm run start` is safe to re-run: it frees a
+  stale SmartSpend listener left by a suspended/killed run (a stopped uvicorn still
+  holds `:8000` but never answers, which looks like a proxy timeout), reuses a healthy
+  stack that is already up, and refuses a port held by any other program. Vite runs
+  with `strictPort` so it never silently hops to 5174/5175, and the API is health-checked
+  before the web server starts.
+
 - **Offline playback is the honest default, not a degraded one.** The UI only shows
   numbers produced by real Day-4 tools and real copilot pipeline runs, replayed from
   `apps/web/src/api/mock/fixtures.json` (its `generator` field records how it was

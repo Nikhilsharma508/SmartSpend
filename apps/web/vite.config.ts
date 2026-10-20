@@ -10,9 +10,13 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // FastAPI (apps/api) lands next; "/api" proxying is already wired so the
-    // switch from mock fixtures to the live service is a config flip.
-    proxy: { "/api": { target: "http://localhost:8000", changeOrigin: true } },
+    // Fail loudly instead of silently hopping to 5174/5175 — the documented
+    // URL (and anything bookmarked) must stay 5173. `scripts/start_app.sh`
+    // frees a stale SmartSpend listener before starting.
+    strictPort: true,
+    // Proxy straight to the IPv4 loopback uvicorn binds by default. `localhost`
+    // can resolve to ::1 first on macOS, which added connect latency.
+    proxy: { "/api": { target: "http://127.0.0.1:8000", changeOrigin: true } },
   },
   test: {
     environment: "happy-dom",
