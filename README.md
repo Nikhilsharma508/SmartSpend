@@ -64,7 +64,7 @@ Day 4 — decision layer: registry, profit curve, multi-treatment, policy tree, 
 
 Day 5 — campaign copilot: gate (Decisions API) → plan (Day-4 tools) → write (pluggable LLM) → validate (V1–V4).
 
-- [x] Copilot pipeline — [`packages/copilot/`](packages/copilot/): router (3 named questions on one API call, calibrated thresholds, keyword fallback), planner (rule-based scenario extraction, cached holdout context, per-intent tool dispatch), providers (Decisions client; template / ollama / neurometric writers), validator (number-trace with citations, USD-only, causal-language rubric, section contract), JSONL trace under `traces/`
+- [x] Copilot pipeline — [`packages/copilot/`](packages/copilot/): router (3 named questions on one API call, calibrated thresholds, keyword fallback), planner (rule-based scenario extraction, cached holdout context, per-intent tool dispatch), providers (Decisions client; template / ollama / neurometric writers), validator (number-trace with citations, USD-only, causal-language rubric, section contract), MLflow GenAI trace per request
 - [x] Config — [`configs/copilot.yaml`](configs/copilot.yaml): thresholds (incl. `t_oos_confidence`), 1% trace tolerance, writer pick, prompt v2
 - [x] Seed eval — [`evals/seed_cases.yaml`](evals/seed_cases.yaml) (15 labelled cases) + [`evals/run_seed_eval.py`](evals/run_seed_eval.py) (fast-path/intent/tool accuracy, pass@1/2, p50/p95)
 - [x] Copilot notebook — [`research/notebooks/05_hillstrom_copilot.ipynb`](research/notebooks/05_hillstrom_copilot.ipynb): live gate, 3-writer comparison on one brief, 4 use cases end-to-end, seed eval, validator torture (5/5 caught), fast-path timing, [`day5_copilot_latency.png`](docs/figures/day5_copilot_latency.png)

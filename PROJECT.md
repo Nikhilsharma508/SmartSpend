@@ -71,7 +71,7 @@ flowchart TB
         P -->|"tool outputs, JSON verbatim"| W["[3] WRITE — pluggable writer<br/>TemplateWriter (no LLM) |<br/>Ollama gpt-oss:120b-cloud |<br/>NEUROMETRIC gateway"]
         W --> V["[4] VALIDATE — pure Python<br/>V1 number-trace (1% tolerance),<br/>V2 units, V3 causal rubric,<br/>V4 sections"]
         V -->|"fail: one rewrite with the<br/>validator errors attached"| W
-        V -->|pass| O["Campaign brief<br/>citations[], validation report,<br/>JSONL trace"]
+        V -->|pass| O["Campaign brief<br/>citations[], validation report,<br/>MLflow GenAI trace"]
     end
     P -->|loads once, cached| REG
     P -->|tool calls| T
@@ -202,7 +202,7 @@ A Python backend and ML packages behind a FastAPI service, with a React frontend
 | API | FastAPI, Pydantic v2, SQLAlchemy + Alembic | Versioned REST endpoints; copilot responses streamed over SSE |
 | Storage | SQLite via SQLAlchemy + Alembic (`data/app/`); PostgreSQL documented as the production option | Scenarios, briefs, target lists, and an audit log of every LLM call and tool output |
 | Frontend | React + TypeScript (Vite), Motion, Tailwind, shadcn + Kokonut/Bklit registry components | Campaign planner, profit and uplift charts, live copilot chat |
-| Observability | JSONL request traces (`traces/`), MLflow local tracking | Traces of copilot requests: latency, cost, tool calls, validator failures |
+| Observability | MLflow GenAI traces (gate/plan/tools/write/validate spans), local SQLite tracking | Traces of copilot requests: latency, cost, tool calls, validator failures |
 | Infra and CI | `scripts/start_app.sh` (`npm run start`), GitHub Actions | One-command local stack without containers; lint, type checks, tests and an eval smoke run on every push |
 | Quality | `pytest`, `ruff`, `mypy`, Vitest | Backend and frontend tests; the copilot eval as a CI gate |
 

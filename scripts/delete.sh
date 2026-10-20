@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Wipe every generated artifact so `npm run setup` can rebuild from zero.
 #
-# Removes the Python env, web deps, data, model, database, MLflow store, traces
+# Removes the Python env, web deps, data, model, database, MLflow store
 # and caches. Keeps secrets and pins: .env, .env.example, uv.lock, pnpm-lock.
 #
 #   npm run delete              # asks for confirmation
@@ -39,7 +39,6 @@ TARGETS=(
   mlflow.db-wal
   mlruns
   mlartifacts
-  traces
   data/app
   .pytest_cache
   .ruff_cache

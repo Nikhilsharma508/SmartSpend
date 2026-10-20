@@ -476,9 +476,14 @@ owning rule.
 
 ### Trace
 
-Every request appends one JSONL row per stage (gate / plan / write / validate /
-package) to gitignored `traces/` — the same schema the Day-6 eval runner reads,
-so there is no second telemetry system.
+Every request opens one MLflow GenAI trace in the `smartspend` experiment:
+`copilot` (root) with child spans for `gate`, `plan`, each Day-4 tool, and
+`write_validate` → `write_attempt_*` / `validate_attempt_*`. Spans carry the
+inputs/outputs (route confidence, scenario, tool results, draft tokens,
+validator checks and citations), and the request's short `trace_id` is stored
+as MLflow `client_request_id` plus a `smartspend.trace_id` tag. Everything
+lives in `mlflow.db`; no JSONL or artifact files are written. Tracing is
+best-effort and can be disabled with `MLFLOW_TRACING=0`.
 
 ---
 

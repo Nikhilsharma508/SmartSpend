@@ -2,7 +2,7 @@
 
 The pipeline is Gate → Plan → Write → Validate; every stage boundary is one of
 these models, so a request is a serialisable object at every point — which is
-exactly what the JSONL trace in :mod:`packages.copilot.trace` records.
+exactly what the MLflow GenAI trace records as span inputs/outputs.
 
 Naming note: the planner's input is :class:`CampaignScenario`, deliberately
 *not* ``Scenario`` — :mod:`packages.decision.schemas` already owns that name
@@ -179,16 +179,6 @@ class BriefPackage(BaseModel):
     stage_latencies: dict[str, float] = Field(default_factory=dict)
 
 
-class TraceEvent(BaseModel):
-    """One row in traces/<date>.jsonl — the visibility layer, stage by stage."""
-
-    ts: str
-    trace_id: str
-    stage: str
-    event: str
-    data: dict[str, Any] = Field(default_factory=dict)
-
-
 # --------------------------------------------------------------------------
 # Configuration (configs/copilot.yaml — thresholds, tolerances, writer pick)
 # --------------------------------------------------------------------------
@@ -240,13 +230,6 @@ class PromptConfig(BaseModel):
     prompt_version: str = "v1"
 
 
-class TraceConfig(BaseModel):
-    """JSONL trace destination; disabled turns the logger into a no-op."""
-
-    enabled: bool = True
-    dir: str = "traces"
-
-
 class CopilotConfig(BaseModel):
     """The whole pipeline's knobs — loaded from configs/copilot.yaml."""
 
@@ -255,7 +238,6 @@ class CopilotConfig(BaseModel):
     validator: ValidatorConfig = Field(default_factory=ValidatorConfig)
     writer: WriterConfig = Field(default_factory=WriterConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
-    trace: TraceConfig = Field(default_factory=TraceConfig)
 
 
 def load_config(path: Path | None = None) -> CopilotConfig:

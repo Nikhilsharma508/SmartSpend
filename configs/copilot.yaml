@@ -33,7 +33,3 @@ prompts:
   prompt_version: v2      # stamped into the trace; bump when prompts change
                           # v2: anti-derivation rule (no derived shares/relative CI)
                           # after live pass@1 findings, notebook 05
-
-trace:
-  enabled: true           # one JSONL row per stage under traces/ (git-ignored)
-  dir: "traces"

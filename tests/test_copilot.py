@@ -79,9 +79,7 @@ class ScriptedWriter(WriterBase):
 
 @pytest.fixture
 def config() -> CopilotConfig:
-    cfg = load_config()
-    cfg.trace.enabled = False
-    return cfg
+    return load_config()
 
 
 @pytest.fixture(scope="module")
@@ -561,21 +559,6 @@ def test_run_request_decline_has_no_scenario_or_tools(config, context):
     assert package.fast_path == "decline"
     assert package.scenario is None
     assert package.validation is None
-
-
-def test_run_request_trace_writes_jsonl(config, context, tmp_path):
-    config.trace.enabled = True
-    config.trace.dir = str(tmp_path)
-    package = _run(PLAN_Q, config, context)
-    files = list(tmp_path.glob("*.jsonl"))
-    assert files
-    rows = [line for line in files[0].read_text().splitlines() if line]
-    import json
-
-    events = [json.loads(r) for r in rows]
-    assert all(e["trace_id"] == package.trace_id for e in events)
-    stages = {e["stage"] for e in events}
-    assert {"gate", "plan", "write", "validate", "package"} <= stages
 
 
 def test_run_request_mlflow_trace(config, context, tmp_path, monkeypatch):

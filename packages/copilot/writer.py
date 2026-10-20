@@ -117,7 +117,9 @@ def write_brief(
                 span,
                 {
                     "passed": report.passed,
-                    "citations": len(report.citations),
+                    "citation_count": len(report.citations),
+                    "citations": [c.model_dump() for c in report.citations],
+                    "checks": [c.model_dump() for c in report.checks],
                     "failures": [c.rule for c in report.failures],
                 },
             )

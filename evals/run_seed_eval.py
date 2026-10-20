@@ -59,7 +59,6 @@ def run_seed_eval(
     if router == "keyword":
         for k in [k for k in list(os.environ) if k.startswith("AZURE_")]:
             del os.environ[k]
-    config.trace.enabled = False  # the eval prints its own report, not JSONL rows
     cases = cases if cases is not None else load_cases()
 
     rows: list[dict[str, Any]] = []

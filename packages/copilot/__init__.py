@@ -18,7 +18,6 @@ the user whose numbers have not been traced back to a tool output.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 from packages.copilot.planner import HoldoutContext, extract_scenario, get_context, run_tools
 from packages.copilot.providers import DecisionsClient, ProviderError
@@ -29,7 +28,7 @@ from packages.copilot.schemas import (
     DraftRequest,
     load_config,
 )
-from packages.copilot.trace import make_logger, new_trace_id
+from packages.copilot.trace import new_trace_id
 from packages.copilot.writer import get_writer, write_brief
 from packages.tracking import (
     annotate_trace,
@@ -120,6 +119,12 @@ def run_request(
                 "latency_s": round(package.latency_s, 3),
                 "draft_attempts": package.draft_attempts,
                 "degraded": package.degraded,
+                "router": package.router,
+                "decline_reason": package.decline_reason,
+                "stage_latencies": {
+                    key: round(value, 3)
+                    for key, value in package.stage_latencies.items()
+                },
             },
         )
         annotate_trace(
@@ -130,6 +135,11 @@ def run_request(
                 "provider": package.provider,
                 "fast_path": package.fast_path,
                 "intent": package.intent.value,
+                **(
+                    {"decline_reason": package.decline_reason}
+                    if package.decline_reason
+                    else {}
+                ),
             },
         )
         return package
@@ -146,7 +156,6 @@ def _run_request(
     """The pipeline body, shared by traced and untraced callers."""
     config = config if config is not None else load_config()
     trace_id = new_trace_id()
-    trace = make_logger(trace_id, config.trace.enabled, config.trace.dir)
     started = time.perf_counter()
     stages: dict[str, float] = {}
 
@@ -165,16 +174,6 @@ def _run_request(
         )
         fast_path = decide_fast_path(route, config)
         stages["gate"] = time.perf_counter() - t0
-        trace.log(
-            "gate",
-            "routed",
-            intent=route.intent.value,
-            confidence=route.intent_confidence,
-            policy_risk=route.policy_risk,
-            missing_inputs=route.missing_inputs,
-            router=route.router,
-            fast_path=fast_path,
-        )
         set_span_outputs(
             span,
             {
@@ -189,7 +188,6 @@ def _run_request(
 
     # ── fast paths: no tools, no writer, no tokens ─────────────────────────
     if fast_path == "decline":
-        trace.log("fast_path", "decline", reason="policy_risk")
         return BriefPackage(
             question=question,
             intent=route.intent,
@@ -202,7 +200,6 @@ def _run_request(
             stage_latencies=stages,
         )
     if fast_path == "redirect":
-        trace.log("fast_path", "redirect", reason="out_of_scope_or_low_confidence")
         return BriefPackage(
             question=question,
             intent=route.intent,
@@ -222,7 +219,6 @@ def _run_request(
         if fast_path == "clarify":
             stages["plan"] = time.perf_counter() - t0
             clarify = _clarify_text(scenario.missing_fields)
-            trace.log("fast_path", "clarify", missing=scenario.missing_fields)
             set_span_outputs(
                 span,
                 {"fast_path": "clarify", "missing": scenario.missing_fields},
@@ -243,12 +239,6 @@ def _run_request(
         holdout = context if context is not None else get_context()
         tool_runs = run_tools(scenario, holdout, config)
         stages["plan"] = time.perf_counter() - t0
-        trace.log(
-            "plan",
-            "tools_done",
-            scenario=scenario.model_dump(),
-            tools=[r.model_dump() for r in tool_runs],
-        )
         set_span_outputs(
             span,
             {
@@ -278,25 +268,6 @@ def _run_request(
             },
         )
     stages["write_validate"] = time.perf_counter() - t0
-    for i, attempt in enumerate(attempts):
-        trace.log(
-            "write",
-            "draft",
-            attempt=i,
-            provider=attempt.provider,
-            latency_s=round(attempt.latency_s, 3),
-            input_tokens=attempt.input_tokens,
-            output_tokens=attempt.output_tokens,
-            passed=report.passed if i == len(attempts) - 1 else False,
-        )
-    trace.log(
-        "validate",
-        "report",
-        passed=report.passed,
-        degraded=degraded,
-        checks=[c.model_dump() for c in report.checks],
-        citations=[c.model_dump() for c in report.citations],
-    )
 
     package = BriefPackage(
         question=question,
@@ -315,9 +286,4 @@ def _run_request(
         latency_s=time.perf_counter() - started,
         stage_latencies=stages,
     )
-    trace.log("package", "done", fast_path="brief", degraded=degraded)
     return package
-
-
-def _load_trace_dir() -> Path:  # pragma: no cover - convenience for notebooks
-    return Path(load_config().trace.dir)
