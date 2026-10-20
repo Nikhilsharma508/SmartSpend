@@ -14,7 +14,13 @@ import os
 from pathlib import Path
 from typing import Any
 
+# Silence MLflow 3's CLI agent hint before the package can print it.
+os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+#: Artifact root for the SQLite tracking backend (and the old file store).
+MLRUNS_DIR = REPO_ROOT / "mlruns"
 
 #: Written next to the tracking store after the champion is logged, so a
 #: uvicorn `--reload` (or any restart) never spams duplicate champion runs.
@@ -31,7 +37,7 @@ def tracking_available() -> bool:
 
 def _tracking_uri() -> str:
     """Same env var pydantic-settings reads; no import of the API package."""
-    return os.environ.get("MLFLOW_TRACKING_URI", "file:./mlruns")
+    return os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
 
 
 def _store_dir() -> Path:
@@ -43,9 +49,26 @@ def _store_dir() -> Path:
 
 
 def _mlflow_uri() -> str:
-    """Resolve a relative file store against the repo root, not the CWD."""
+    """Resolve relative stores against the repo root, not the CWD."""
     uri = _tracking_uri()
-    return f"file:{_store_dir()}" if uri.startswith("file:") else uri
+    if uri.startswith("file:"):
+        return f"file:{_store_dir()}"
+    if uri.startswith("sqlite:///") and not uri.startswith("sqlite:////"):
+        rel = uri[len("sqlite:///") :]
+        return f"sqlite:///{(REPO_ROOT / rel).resolve()}"
+    return uri
+
+
+def _state_dir() -> Path:
+    """Where the champion-stamp JSON lives: beside the tracking store."""
+    uri = _tracking_uri()
+    if uri.startswith("file:"):
+        return _store_dir()
+    if uri.startswith("sqlite:///"):
+        rel = uri[len("sqlite:///") :]
+        db = Path(rel) if rel.startswith("/") else REPO_ROOT / rel
+        return db.parent
+    return MLRUNS_DIR
 
 
 def log_champion() -> str | None:
@@ -56,7 +79,7 @@ def log_champion() -> str | None:
         return None
 
     digest = hashlib.sha256(meta_path.read_bytes()).hexdigest()
-    stamp = _store_dir() / _CHAMPION_STAMP
+    stamp = _state_dir() / _CHAMPION_STAMP
     if stamp.exists():
         try:
             logged = json.loads(stamp.read_text())

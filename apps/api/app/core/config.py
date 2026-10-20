@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # SQLite by default (no sign-in, single file, WAL-friendly). Swap to a
     # PostgreSQL URL without code changes.
     database_url: str = "sqlite:///data/app/smartspend.db"
-    mlflow_tracking_uri: str = "file:./mlruns"
+    mlflow_tracking_uri: str = "sqlite:///mlflow.db"
     champion_path: str = "models/champion.joblib"
     champion_sidecar: str = "models/champion.provenance.json"
 
