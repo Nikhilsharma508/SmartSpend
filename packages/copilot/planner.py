@@ -33,6 +33,7 @@ from packages.decision import (
     profit_point,
 )
 from packages.decision.schemas import ModelCard, SegmentProfile
+from packages.tracking import set_span_outputs, trace_span
 
 # --- question parsing ------------------------------------------------------
 # USD only (decided Day 1): $500, $2,000.50, 500k, "$200 USD". No INR parsing.
@@ -309,12 +310,18 @@ def run_tools(
     )
 
     def _run(name: str, fn: Callable[[], Any]) -> ToolRun:
-        try:
-            run = tool_run(name, fn())
-        except Exception as err:  # noqa: BLE001 - surfaced to the writer, never swallowed
-            run = ToolRun(name=name, ok=False, error=f"{type(err).__name__}: {err}")
-        runs.append(run)
-        return run
+        with trace_span(
+            name, "TOOL", inputs={"scenario": scenario.model_dump()}
+        ) as span:
+            try:
+                run = tool_run(name, fn())
+            except Exception as err:  # noqa: BLE001 - surfaced to the writer, never swallowed
+                run = ToolRun(name=name, ok=False, error=f"{type(err).__name__}: {err}")
+            runs.append(run)
+            set_span_outputs(
+                span, {"ok": run.ok, "error": run.error, "output": run.output}
+            )
+            return run
 
     if scenario.intent is Intent.PLAN:
         depth = _effective_depth(scenario, context, config)

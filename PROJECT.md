@@ -245,7 +245,7 @@ smartspend/
 └── README.md
 ```
 
-Three boundaries keep it production-shaped. Notebooks are for research only; anything reused moves into `packages/`. Training runs as a pipeline that registers a model — a `joblib` artifact plus a provenance sidecar, with MLflow (local SQLite tracking) logging the same champion artifacts, metrics and decision runs alongside — and the API only loads the registered version. The frontend uses a client generated from the API's OpenAPI spec, so backend schema changes surface as TypeScript errors instead of runtime bugs.
+Three boundaries keep it production-shaped. Notebooks are for research only; anything reused moves into `packages/`. Training runs as a pipeline that registers a model — a `joblib` artifact plus a provenance sidecar, with MLflow (local SQLite tracking) logging the champion metadata and GenAI traces of each copilot request alongside — and the API only loads the registered version. The frontend uses a client generated from the API's OpenAPI spec, so backend schema changes surface as TypeScript errors instead of runtime bugs.
 
 ## Seven-day build plan
 

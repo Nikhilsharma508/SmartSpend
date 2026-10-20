@@ -521,9 +521,9 @@ chat, and CSV export of the recommended targeting plan.
   S/T/X/DR learners and causal forest were trained in notebooks 02/03 for the
   benchmark but never saved (re-trainable via `train.py --learner …`); the
   policy tree is refit on demand in `HoldoutContext.segment_profile` and is
-  deterministic. MLflow backfill is therefore limited to the champion plus
-  decision runs — the full benchmark history is not reconstructable from
-  artifacts (its numbers live in the ledger below).
+  deterministic. MLflow tracking is therefore limited to the champion's
+  metadata plus GenAI traces — the full benchmark history is not reconstructable
+  from the store (its numbers live in the ledger below).
 
 ## Findings ledger
 
@@ -830,7 +830,7 @@ Day-5 finding table:
 | The planner UI computes, it does not replay | `GET /api/v1/overview` runs `optimize_budget` + `compare_scenarios` + `get_segment_profile` + `design_ab_test` on the champion's holdout once per API process; the Day-4 figures still match the ledger to the cent ($857.60 profit at 30% depth, break-even mark 2%). The payload is cached after boot's ~20 s policy-tree warm-up. |
 | The app exercises the real gate, not a stand-in | Loading `.env` into `os.environ` flipped `/api/v1/copilot` from `router: keyword_fallback` to `router: decisions` (gate ≈1.3 s). The writer selector exposes template / ollama / neurometric; one live ollama explain run took 29.1 s and two drafts and still passed V1–V4, while a failing LLM degrades to the template. |
 | One command boots the app | `npm run start` → `scripts/start_app.sh`: mise-pinned node 22/pnpm 10, installs web deps when missing, starts FastAPI :8000, health-checks it, then Vite :5173, with trap cleanup on exit. The script is re-runnable: it frees a stale SmartSpend listener, reuses a healthy stack, refuses a foreign port holder, and Vite runs `strictPort` so :5173 never silently becomes :5175. |
-| MLflow tracks the champion and every decision run | MLflow 3.17 with a local SQLite backend (`mlflow.db`) + `mlruns/` artifacts; `pipelines/log_mlflow.py` backfills the champion (run id logged), and each `/api/v1/copilot` call logs a decision run. MLflow 3 blocks the legacy file store by default, so the old `mlruns/` store was migrated once with `mlflow migrate-filestore` (17 runs) and `npm run mlflow` serves the SQLite store. The old setuptools <71 / protobuf <5 pins were 1.27-only and were dropped. |
+| MLflow tracks the champion and every copilot request | MLflow 3.17 with a local SQLite store (`mlflow.db`) holding run metadata and GenAI traces; **no artifacts** are logged (the champion joblib/provenance stay in `models/`). `pipelines/log_mlflow.py` backfills the champion, and each `/api/v1/copilot` call becomes a trace with `copilot → gate → plan → tools → write → validate` spans, correlated to the app's `trace_id` via `client_request_id`. The UI's **GenAI → Traces** view is the audit surface; the old file store was migrated once (17 runs) and `npm run mlflow` serves the SQLite store. The old setuptools <71 / protobuf <5 pins were 1.27-only and were dropped. |
 | Model audit | Only the champion (response baseline, seed 42) is persisted; S/T/X/DR/forest trained in notebooks but not saved (re-trainable via `train.py --learner`); policy tree refit on demand. MLflow backfill limited accordingly. |
 | Day-6 eval (46 cases) | fast_path 0.913, intent 1.000, tool-call 1.000, validator pass@1 1.000, p50 1.15s (template writer, live gate). Ablation: keyword fallback 0.739 / 0.844 / 0.800 / 0.00s — router earns its place (+0.174 fast-path, +0.200 tools, +1.15s). |
 

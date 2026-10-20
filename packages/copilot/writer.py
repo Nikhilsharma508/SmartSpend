@@ -24,6 +24,7 @@ from packages.copilot.schemas import (
     ValidationReport,
 )
 from packages.copilot.validator import validate
+from packages.tracking import set_span_outputs, trace_span
 
 #: Marker appended when the draft fails validation after the retry budget.
 UNVERIFIED_MARKER = "[UNVERIFIED"
@@ -79,19 +80,47 @@ def write_brief(
 
     for _round in range(1 + config.validator.max_rewrites + 1):
         draft_request = request.model_copy(update={"retry_errors": retry_errors})
-        try:
-            draft = writer.write(draft_request)
-        except ProviderError as err:
-            # A generative provider failing mid-flight degrades to the
-            # template — an answer with a true provenance beats an exception.
-            draft = TemplateWriter().write(draft_request)
-            draft = draft.model_copy(
-                update={"provider": f"{writer.name}->template ({err.__class__.__name__})"}
+        with trace_span(
+            f"write_attempt_{_round + 1}",
+            "LLM",
+            inputs={"provider": writer.name, "retry_errors": retry_errors},
+        ) as span:
+            try:
+                draft = writer.write(draft_request)
+            except ProviderError as err:
+                # A generative provider failing mid-flight degrades to the
+                # template — an answer with a true provenance beats an exception.
+                draft = TemplateWriter().write(draft_request)
+                draft = draft.model_copy(
+                    update={"provider": f"{writer.name}->template ({err.__class__.__name__})"}
+                )
+            set_span_outputs(
+                span,
+                {
+                    "provider": draft.provider,
+                    "chars": len(draft.text),
+                    "input_tokens": draft.input_tokens,
+                    "output_tokens": draft.output_tokens,
+                    "latency_s": round(draft.latency_s, 3),
+                },
             )
         attempts.append(draft)
-        report = validate(
-            draft.text, request.tool_runs, request.scenario, config.validator
-        )
+        with trace_span(
+            f"validate_attempt_{_round + 1}",
+            "CHAIN",
+            inputs={"chars": len(draft.text)},
+        ) as span:
+            report = validate(
+                draft.text, request.tool_runs, request.scenario, config.validator
+            )
+            set_span_outputs(
+                span,
+                {
+                    "passed": report.passed,
+                    "citations": len(report.citations),
+                    "failures": [c.rule for c in report.failures],
+                },
+            )
         final = draft
         if report.passed:
             break

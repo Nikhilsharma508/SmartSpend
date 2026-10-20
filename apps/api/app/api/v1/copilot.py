@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from packages.copilot import run_request
 from packages.copilot.providers import ProviderError
 
+from ...core.config import settings
 from ...db.session import get_db
 from ...models.audit_log import AuditLog
 from ...models.brief import Brief
@@ -31,7 +32,11 @@ class CopilotRequest(BaseModel):
 @router.post("")
 def answer(payload: CopilotRequest, db: DbDep) -> dict:
     try:
-        pkg = run_request(payload.question, writer_provider=payload.provider)
+        pkg = run_request(
+            payload.question,
+            writer_provider=payload.provider,
+            mlflow_trace=settings.mlflow_tracing,
+        )
     except ProviderError as err:
         raise HTTPException(
             status_code=503,
@@ -69,18 +74,5 @@ def answer(payload: CopilotRequest, db: DbDep) -> dict:
         )
     )
     db.commit()
-
-    # Best-effort MLflow tracking of the deterministic decision run (never
-    # blocks or fails the response).
-    try:
-        from packages.tracking.mlflow import log_decision_run
-
-        log_decision_run(
-            "copilot",
-            {"question": payload.question, "trace_id": pkg.trace_id, "fast_path": pkg.fast_path},
-            {"draft_attempts": getattr(pkg, "draft_attempts", 1)},
-        )
-    except Exception:  # noqa: BLE001
-        pass
 
     return pkg.model_dump()

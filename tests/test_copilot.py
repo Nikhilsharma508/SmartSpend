@@ -578,6 +578,43 @@ def test_run_request_trace_writes_jsonl(config, context, tmp_path):
     assert {"gate", "plan", "write", "validate", "package"} <= stages
 
 
+def test_run_request_mlflow_trace(config, context, tmp_path, monkeypatch):
+    """The API path opens one GenAI trace with stage/tool spans in SQLite."""
+    db = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db}")
+    monkeypatch.setenv("MLFLOW_TRACING", "1")
+
+    package = run_request(
+        PLAN_Q,
+        config=config,
+        client=FakeDecisions(_answers()),
+        writer_provider="template",
+        context=context,
+        mlflow_trace=True,
+    )
+
+    import mlflow
+    from mlflow import MlflowClient
+
+    mlflow.flush_trace_async_logging()
+    client = MlflowClient(tracking_uri=f"sqlite:///{db}")
+    experiment = client.get_experiment_by_name("smartspend")
+    assert experiment is not None
+    traces = client.search_traces(locations=[experiment.experiment_id])
+    assert len(traces) == 1
+    trace = traces[0]
+    assert trace.info.client_request_id == package.trace_id
+    span_names = {span.name for span in trace.data.spans}
+    assert {
+        "copilot",
+        "gate",
+        "plan",
+        "profit_point",
+        "write_validate",
+        "validate_attempt_1",
+    } <= span_names
+
+
 # --- config / seed cases ----------------------------------------------------
 
 

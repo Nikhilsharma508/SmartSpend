@@ -37,7 +37,6 @@ TARGETS=(
   mlflow.db
   mlflow.db-shm
   mlflow.db-wal
-  .champion_logged.json
   mlruns
   mlartifacts
   traces

@@ -31,11 +31,11 @@ data/app/
 *.parquet
 
 # ---- MLflow / model artifacts ----
-# MLflow 3 tracking store (SQLite) + file-based artifacts.
+# MLflow 3 metadata + GenAI traces (SQLite). Artifacts are not logged;
+# mlruns/ is kept ignored for legacy stores.
 /mlflow.db
 /mlflow.db-shm
 /mlflow.db-wal
-/.champion_logged.json
 mlruns/
 mlartifacts/
 # Root-only: the registered joblib artifacts. Without the leading slash this

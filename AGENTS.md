@@ -130,12 +130,11 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   Alembic — chosen over the documented PostgreSQL to keep the local run
   sign-in-free, with the Postgres swap remaining a one-URL change (PostgreSQL 18
   is the documented production option). No auth on local services.
-- **MLflow tracks locally** (MLflow 3.17, SQLite backend `mlflow.db` + `mlruns/` artifacts)
-  and logs every run kind: model training/evals and each deterministic decision-tool call
-  (`optimize_budget`, `compare_scenarios`, `design_ab_test`). MLflow 3 blocks the legacy
-  file store by default; the old `mlruns/` store was migrated once with
-  `mlflow migrate-filestore`. `npm run mlflow` serves the SQLite store. The joblib +
-  provenance sidecar remains the load-path code of record.
+- **MLflow tracks locally in SQLite only** (MLflow 3.17, `mlflow.db`): the champion's
+  params/metrics, and one GenAI trace per `/api/v1/copilot` request with child spans for
+  gate, plan, each Day-4 tool, write and validate. No artifacts are logged — the joblib
+  and provenance sidecar in `models/` remain the load-path code of record. `npm run mlflow`
+  serves the store; the UI's **GenAI → Traces** view is the copilot audit view.
 
 ## Conventions
 

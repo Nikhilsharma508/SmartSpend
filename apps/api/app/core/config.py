@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     # PostgreSQL URL without code changes.
     database_url: str = "sqlite:///data/app/smartspend.db"
     mlflow_tracking_uri: str = "sqlite:///mlflow.db"
+    #: MLflow 3 GenAI traces for /api/v1/copilot (MLFLOW_TRACING=0 turns them off).
+    mlflow_tracing: bool = True
     champion_path: str = "models/champion.joblib"
     champion_sidecar: str = "models/champion.provenance.json"
 

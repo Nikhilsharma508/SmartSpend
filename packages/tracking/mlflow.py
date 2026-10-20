@@ -2,8 +2,9 @@
 
 MLflow is an optional, local-only dependency: if it is not installed or the
 tracking URI is unreachable, every helper degrades to a no-op so the API and
-pipelines keep working. The joblib + provenance sidecar remains the load-path
-code of record; MLflow is tracking/audit, never the source of truth.
+pipelines keep working. Tracking is metadata-and-trace only: runs, params,
+metrics, tags and GenAI spans live in ``mlflow.db``. No artifacts are logged;
+the joblib + provenance sidecar remains the load-path code of record.
 """
 
 from __future__ import annotations
@@ -11,6 +12,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -19,12 +24,9 @@ os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: Artifact root for the SQLite tracking backend (and the old file store).
-MLRUNS_DIR = REPO_ROOT / "mlruns"
-
-#: Written next to the tracking store after the champion is logged, so a
-#: uvicorn `--reload` (or any restart) never spams duplicate champion runs.
-_CHAMPION_STAMP = ".champion_logged.json"
+#: True only inside a :func:`request_trace` block, so stage spans are no-ops
+#: for tests, evals and library callers that did not ask for tracing.
+_TRACE_ACTIVE: ContextVar[bool] = ContextVar("smartspend_mlflow_trace", default=False)
 
 
 def tracking_available() -> bool:
@@ -59,36 +61,156 @@ def _mlflow_uri() -> str:
     return uri
 
 
-def _state_dir() -> Path:
-    """Where the champion-stamp JSON lives: beside the tracking store."""
-    uri = _tracking_uri()
-    if uri.startswith("file:"):
-        return _store_dir()
-    if uri.startswith("sqlite:///"):
-        rel = uri[len("sqlite:///") :]
-        db = Path(rel) if rel.startswith("/") else REPO_ROOT / rel
-        return db.parent
-    return MLRUNS_DIR
+def _init_tracking() -> bool:
+    """Point MLflow at the local store and select the SmartSpend experiment."""
+    if not tracking_available():
+        return False
+    import mlflow
+
+    try:
+        mlflow.set_tracking_uri(_mlflow_uri())
+        mlflow.set_experiment("smartspend")
+        return True
+    except Exception:  # noqa: BLE001 - tracking must never break a caller
+        return False
+
+
+def tracing_enabled() -> bool:
+    """MLFLOW_TRACING=0 turns GenAI traces off (tests, evals, offline runs)."""
+    return os.environ.get("MLFLOW_TRACING", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _set_inputs(span: Any, inputs: Any) -> None:
+    if span is None or inputs is None:
+        return
+    with suppress(Exception):
+        span.set_inputs(inputs)
+
+
+def _set_outputs(span: Any, outputs: Any) -> None:
+    if span is None or outputs is None:
+        return
+    with suppress(Exception):
+        span.set_outputs(outputs)
+
+
+def _set_attributes(span: Any, attributes: dict[str, Any] | None) -> None:
+    if span is None or not attributes:
+        return
+    with suppress(Exception):
+        span.set_attributes(
+            {
+                key: value if isinstance(value, (str, int, float, bool)) else str(value)
+                for key, value in attributes.items()
+            }
+        )
+
+
+@contextmanager
+def request_trace(
+    question: str,
+    provider: str | None = None,
+) -> Iterator[Any | None]:
+    """Root GenAI trace for one copilot request; yields the live span or None."""
+    if not tracing_enabled() or not _init_tracking():
+        yield None
+        return
+
+    import mlflow
+
+    try:
+        span_cm = mlflow.start_span(name="copilot", span_type="CHAIN")
+        span = span_cm.__enter__()
+    except Exception:  # noqa: BLE001 - tracing must never break a request
+        yield None
+        return
+
+    _set_inputs(span, {"question": question, "provider": provider or "config"})
+    token = _TRACE_ACTIVE.set(True)
+    exc_info: tuple[Any, Any, Any] = (None, None, None)
+    try:
+        yield span
+    except BaseException:
+        exc_info = sys.exc_info()
+        raise
+    finally:
+        _TRACE_ACTIVE.reset(token)
+        with suppress(Exception):
+            span_cm.__exit__(*exc_info)
+
+
+@contextmanager
+def trace_span(
+    name: str,
+    span_type: str = "UNKNOWN",
+    *,
+    inputs: Any = None,
+    attributes: dict[str, Any] | None = None,
+) -> Iterator[Any | None]:
+    """Child span inside :func:`request_trace`; a no-op elsewhere."""
+    if not _TRACE_ACTIVE.get():
+        yield None
+        return
+
+    import mlflow
+
+    try:
+        span_cm = mlflow.start_span(name=name, span_type=span_type)
+        span = span_cm.__enter__()
+    except Exception:  # noqa: BLE001
+        yield None
+        return
+
+    _set_inputs(span, inputs)
+    _set_attributes(span, attributes)
+    try:
+        yield span
+    finally:
+        with suppress(Exception):
+            span_cm.__exit__(None, None, None)
+
+
+def set_span_outputs(span: Any | None, outputs: Any) -> None:
+    """Public helper so callers do not import MLflow themselves."""
+    _set_outputs(span, outputs)
+
+
+def annotate_trace(
+    *,
+    trace_id: str,
+    request_preview: str,
+    response_preview: str,
+    tags: dict[str, str] | None = None,
+) -> None:
+    """Attach the app trace id and readable previews to the active GenAI trace."""
+    if not _TRACE_ACTIVE.get():
+        return
+    try:
+        import mlflow
+
+        mlflow.update_current_trace(
+            client_request_id=trace_id,
+            request_preview=request_preview[:1000],
+            response_preview=response_preview[:1000],
+            tags={"smartspend.trace_id": trace_id, **(tags or {})},
+        )
+    except Exception:  # noqa: BLE001 - tracing is best-effort
+        pass
 
 
 def log_champion() -> str | None:
-    """Log the registered champion once per artifact; returns run id or None."""
+    """Log the registered champion once per metadata digest; returns its run id."""
     meta_path = REPO_ROOT / "models" / "champion.meta.json"
-    joblib_path = REPO_ROOT / "models" / "champion.joblib"
     if not meta_path.exists():
         return None
 
     digest = hashlib.sha256(meta_path.read_bytes()).hexdigest()
-    stamp = _state_dir() / _CHAMPION_STAMP
-    if stamp.exists():
-        try:
-            logged = json.loads(stamp.read_text())
-            if logged.get("digest") == digest:
-                return logged.get("run_id")
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    if not tracking_available():
+    if not _init_tracking():
         return None
     import mlflow
 
@@ -97,8 +219,19 @@ def log_champion() -> str | None:
     assumptions = meta.get("assumptions", {}) or {}
 
     try:
-        mlflow.set_tracking_uri(_mlflow_uri())
-        mlflow.set_experiment("smartspend")
+        client = mlflow.MlflowClient()
+        experiment = client.get_experiment_by_name("smartspend")
+        if experiment is not None:
+            existing = client.search_runs(
+                [experiment.experiment_id],
+                filter_string=(
+                    f"tags.meta_digest = '{digest}' and tags.role = 'champion'"
+                ),
+                max_results=1,
+            )
+            if existing:
+                return existing[0].info.run_id
+
         with mlflow.start_run(run_name="champion-response-seed42") as run:
             mlflow.log_params(
                 {
@@ -114,52 +247,8 @@ def log_champion() -> str | None:
             )
             for k, v in assumptions.items():
                 mlflow.log_param(f"assumption_{k}", v)
-            if joblib_path.exists():
-                mlflow.log_artifact(str(joblib_path), artifact_path="model")
-            mlflow.log_artifact(str(meta_path), artifact_path="model")
             mlflow.set_tag("role", "champion")
-            run_id = run.info.run_id
-    except Exception:  # noqa: BLE001 - tracking must never break a boot
-        return None
-
-    try:
-        stamp.parent.mkdir(parents=True, exist_ok=True)
-        stamp.write_text(json.dumps({"digest": digest, "run_id": run_id}) + "\n")
-    except OSError:
-        pass
-    return run_id
-
-
-def log_decision_run(
-    tool: str,
-    params: dict[str, Any],
-    metrics: dict[str, Any] | None = None,
-) -> str | None:
-    """Log one deterministic decision-tool invocation as an MLflow run."""
-    if not tracking_available():
-        return None
-    import mlflow
-
-    try:
-        mlflow.set_tracking_uri(_mlflow_uri())
-        mlflow.set_experiment("smartspend")
-        with mlflow.start_run(run_name=f"decision-{tool}") as run:
-            mlflow.log_params(
-                {
-                    k: (v if not isinstance(v, (dict, list)) else json.dumps(v))
-                    for k, v in params.items()
-                }
-            )
-            if metrics:
-                mlflow.log_metrics(
-                    {
-                        k: float(v)
-                        for k, v in metrics.items()
-                        if isinstance(v, (int, float))
-                    }
-                )
-            mlflow.set_tag("kind", "decision")
-            mlflow.set_tag("tool", tool)
+            mlflow.set_tag("meta_digest", digest)
             return run.info.run_id
-    except Exception:  # noqa: BLE001 - tracking must never break a request
+    except Exception:  # noqa: BLE001 - tracking must never break a boot
         return None

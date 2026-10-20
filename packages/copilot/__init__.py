@@ -31,6 +31,12 @@ from packages.copilot.schemas import (
 )
 from packages.copilot.trace import make_logger, new_trace_id
 from packages.copilot.writer import get_writer, write_brief
+from packages.tracking import (
+    annotate_trace,
+    request_trace,
+    set_span_outputs,
+    trace_span,
+)
 
 __all__ = ["BriefPackage", "CopilotConfig", "HoldoutContext", "run_request"]
 
@@ -74,6 +80,7 @@ def run_request(
     client: DecisionsClient | None = None,
     writer_provider: str | None = None,
     context: HoldoutContext | None = None,
+    mlflow_trace: bool = False,
 ) -> BriefPackage:
     """Answer one marketer question end-to-end; never raises for bad input.
 
@@ -81,7 +88,62 @@ def run_request(
     holdout context) so tests run the identical pipeline with fakes.
     A missing ``.env`` degrades gracefully: the keyword router replaces the
     Decisions API, and the template writer replaces a generative one.
+
+    ``mlflow_trace`` opens one GenAI trace (gate → plan → write → validate)
+    under the ``smartspend`` experiment. It is off by default so tests and
+    library callers never touch the tracking store.
     """
+    if not mlflow_trace:
+        return _run_request(
+            question,
+            config=config,
+            client=client,
+            writer_provider=writer_provider,
+            context=context,
+        )
+
+    with request_trace(question, writer_provider) as span:
+        package = _run_request(
+            question,
+            config=config,
+            client=client,
+            writer_provider=writer_provider,
+            context=context,
+        )
+        set_span_outputs(
+            span,
+            {
+                "fast_path": package.fast_path,
+                "intent": package.intent.value,
+                "provider": package.provider,
+                "trace_id": package.trace_id,
+                "latency_s": round(package.latency_s, 3),
+                "draft_attempts": package.draft_attempts,
+                "degraded": package.degraded,
+            },
+        )
+        annotate_trace(
+            trace_id=package.trace_id,
+            request_preview=question,
+            response_preview=package.prose,
+            tags={
+                "provider": package.provider,
+                "fast_path": package.fast_path,
+                "intent": package.intent.value,
+            },
+        )
+        return package
+
+
+def _run_request(
+    question: str,
+    *,
+    config: CopilotConfig | None = None,
+    client: DecisionsClient | None = None,
+    writer_provider: str | None = None,
+    context: HoldoutContext | None = None,
+) -> BriefPackage:
+    """The pipeline body, shared by traced and untraced callers."""
     config = config if config is not None else load_config()
     trace_id = new_trace_id()
     trace = make_logger(trace_id, config.trace.enabled, config.trace.dir)
@@ -90,28 +152,40 @@ def run_request(
 
     # ── [1] GATE ───────────────────────────────────────────────────────────
     t0 = time.perf_counter()
-    if client is None:
-        try:
-            client = DecisionsClient.from_env()
-        except ProviderError:
-            client = None
-    route = (
-        route_question(question, client)
-        if client is not None
-        else keyword_fallback_route(question)
-    )
-    fast_path = decide_fast_path(route, config)
-    stages["gate"] = time.perf_counter() - t0
-    trace.log(
-        "gate",
-        "routed",
-        intent=route.intent.value,
-        confidence=route.intent_confidence,
-        policy_risk=route.policy_risk,
-        missing_inputs=route.missing_inputs,
-        router=route.router,
-        fast_path=fast_path,
-    )
+    with trace_span("gate", "LLM", inputs={"question": question}) as span:
+        if client is None:
+            try:
+                client = DecisionsClient.from_env()
+            except ProviderError:
+                client = None
+        route = (
+            route_question(question, client)
+            if client is not None
+            else keyword_fallback_route(question)
+        )
+        fast_path = decide_fast_path(route, config)
+        stages["gate"] = time.perf_counter() - t0
+        trace.log(
+            "gate",
+            "routed",
+            intent=route.intent.value,
+            confidence=route.intent_confidence,
+            policy_risk=route.policy_risk,
+            missing_inputs=route.missing_inputs,
+            router=route.router,
+            fast_path=fast_path,
+        )
+        set_span_outputs(
+            span,
+            {
+                "intent": route.intent.value,
+                "confidence": route.intent_confidence,
+                "policy_risk": route.policy_risk,
+                "router": route.router,
+                "fast_path": fast_path,
+                "missing_inputs": route.missing_inputs,
+            },
+        )
 
     # ── fast paths: no tools, no writer, no tokens ─────────────────────────
     if fast_path == "decline":
@@ -143,33 +217,45 @@ def run_request(
 
     # ── [2] PLAN ───────────────────────────────────────────────────────────
     t0 = time.perf_counter()
-    scenario = extract_scenario(question, route.intent, config)
-    if fast_path == "clarify":
-        stages["plan"] = time.perf_counter() - t0
-        clarify = _clarify_text(scenario.missing_fields)
-        trace.log("fast_path", "clarify", missing=scenario.missing_fields)
-        return BriefPackage(
-            question=question,
-            intent=route.intent,
-            fast_path="clarify",
-            prose=clarify,
-            clarify_question=clarify,
-            scenario=scenario,
-            router=route.router,
-            trace_id=trace_id,
-            latency_s=time.perf_counter() - started,
-            stage_latencies=stages,
-        )
+    with trace_span("plan", "CHAIN", inputs={"intent": route.intent.value}) as span:
+        scenario = extract_scenario(question, route.intent, config)
+        if fast_path == "clarify":
+            stages["plan"] = time.perf_counter() - t0
+            clarify = _clarify_text(scenario.missing_fields)
+            trace.log("fast_path", "clarify", missing=scenario.missing_fields)
+            set_span_outputs(
+                span,
+                {"fast_path": "clarify", "missing": scenario.missing_fields},
+            )
+            return BriefPackage(
+                question=question,
+                intent=route.intent,
+                fast_path="clarify",
+                prose=clarify,
+                clarify_question=clarify,
+                scenario=scenario,
+                router=route.router,
+                trace_id=trace_id,
+                latency_s=time.perf_counter() - started,
+                stage_latencies=stages,
+            )
 
-    holdout = context if context is not None else get_context()
-    tool_runs = run_tools(scenario, holdout, config)
-    stages["plan"] = time.perf_counter() - t0
-    trace.log(
-        "plan",
-        "tools_done",
-        scenario=scenario.model_dump(),
-        tools=[r.model_dump() for r in tool_runs],
-    )
+        holdout = context if context is not None else get_context()
+        tool_runs = run_tools(scenario, holdout, config)
+        stages["plan"] = time.perf_counter() - t0
+        trace.log(
+            "plan",
+            "tools_done",
+            scenario=scenario.model_dump(),
+            tools=[r.model_dump() for r in tool_runs],
+        )
+        set_span_outputs(
+            span,
+            {
+                "scenario": scenario.model_dump(),
+                "tools": [r.name for r in tool_runs],
+            },
+        )
 
     # ── [3] WRITE + [4] VALIDATE ───────────────────────────────────────────
     t0 = time.perf_counter()
@@ -177,7 +263,20 @@ def run_request(
     request = DraftRequest(
         intent=route.intent, question=question, scenario=scenario, tool_runs=tool_runs
     )
-    final, report, attempts, degraded = write_brief(request, writer, config)
+    with trace_span(
+        "write_validate", "CHAIN", inputs={"provider": writer.name}
+    ) as span:
+        final, report, attempts, degraded = write_brief(request, writer, config)
+        set_span_outputs(
+            span,
+            {
+                "provider": final.provider,
+                "attempts": len(attempts),
+                "passed": report.passed,
+                "degraded": degraded,
+                "citations": len(report.citations),
+            },
+        )
     stages["write_validate"] = time.perf_counter() - t0
     for i, attempt in enumerate(attempts):
         trace.log(
