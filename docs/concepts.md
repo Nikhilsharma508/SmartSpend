@@ -567,8 +567,8 @@ in its right rail.
   a ~20 s `DRPolicyTree` fit) in a background thread. A retrained model is picked up by
   restarting the API. The only snapshot in the repo is `apps/web/tests/overview.json`,
   a unit-test fixture the shipped app never imports.
-- **Plain language is a layer, not a rewrite.** `src/lib/plain-terms.ts` holds the
-  glossary; `<Term>` renders unavoidable nouns (MDE, holdout, seed 42, Qini, CI,
+- **Plain language is a layer, not a rewrite.** `apps/web/src/components/term.tsx` holds
+  the glossary; `<Term>` renders unavoidable nouns (MDE, holdout, seed 42, Qini, CI,
   uplift, score kind) with a plain-English tooltip, and `<ToolChip>` renders a decision
   tool's name (`optimize_budget`, `design_ab_test`, …) as muted mono provenance with
   its plain job. The rule everywhere: **the plain sentence carries the meaning, the
@@ -582,6 +582,12 @@ in its right rail.
   restore). An opaque veil (`SwitchVeil`) covers the outgoing numbers for the moment
   the swap takes — old numbers are never shown under the new model's name, and a
   cold model still shows the first-load skeleton because there is nothing to keep.
+- **App screenshots are the README's front page.** `docs/screenshots/` holds
+  viewport captures of the four live screens (planner, model lab, segments,
+  copilot with a real brief) — the README embeds them as the app's evidence.
+  They are a *different* artefact from `docs/figures/`: `save_fig` writes the
+  notebook's plots, while a screenshot is the app's own output, so it is
+  captured from the running UI and committed by hand.
 - **The planner has exactly one lever.** Spend, targeting depth and contact count are
   three units of the same knob, so the budget card offers both a money slider and a
   depth slider (two-way, one `<RangeSlider>` each: filled track, knob, tick captions

@@ -76,7 +76,7 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   Mode toggle) and shares its guards/toasts with the Model lab through
   `src/lib/model-actions.ts`. Copy rule: the plain sentence carries the meaning, the
   technical name is the annotation — jargon gets a plain tooltip from
-  `src/lib/plain-terms.ts` (`<Term>`), tool names are muted mono chips
+  `src/components/term.tsx` (`<Term>`), tool names are muted mono chips
   (`<ToolChip>`); labels change, numbers never.
 - `src/components/kokonutui/`, `src/components/charts/` (Bklit) and
   `src/components/shimmering-text.tsx` are registry-vendored and lint-relaxed in
