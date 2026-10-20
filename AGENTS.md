@@ -27,6 +27,16 @@ uv add <pkg>        /  uv add --dev <pkg>      # change deps — never hand-edit
 
 Order matters in CI: `ruff check .` → `mypy packages pipelines` → `pytest`.
 
+Root npm automation (mise shims on PATH first):
+
+```bash
+npm run setup                     # idempotent end-to-end bootstrap: mise, uv sync,
+                                  #   pnpm install, .env, data, champion, alembic, MLflow, smoke
+npm run start                     # FastAPI :8000 + web :5173 (see below)
+npm run mlflow                    # MLflow UI :5000 (MLFLOW_PORT overrides); seeds the champion
+npm run delete                    # destructive reset; keeps .env + lockfiles. --dry-run / --yes
+```
+
 ## Frontend (apps/web)
 
 Node toolchain comes from **mise** (pinned in `mise.toml`: node 22, pnpm 10). Most

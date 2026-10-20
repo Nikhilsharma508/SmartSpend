@@ -2,9 +2,12 @@
   "name": "smartspend-root",
   "version": "0.1.0",
   "private": true,
-  "description": "Repository-root runner — `npm run start` boots the whole app (FastAPI once apps/api exists, plus the web planner). Zero dependencies; the script bootstraps mise/pnpm/uv itself.",
+  "description": "Repository-root runner — `npm run setup` prepares everything, `npm run start` boots FastAPI + the web planner, `npm run mlflow` opens the local tracking UI, `npm run delete` resets generated artifacts. Zero dependencies; the scripts bootstrap mise/pnpm/uv themselves.",
   "scripts": {
+    "setup": "bash scripts/setup.sh",
     "start": "bash scripts/start_app.sh",
+    "mlflow": "bash scripts/mlflow.sh",
+    "delete": "bash scripts/delete.sh",
     "web": "pnpm -C apps/web dev",
     "web:build": "pnpm -C apps/web build",
     "web:check": "pnpm -C apps/web lint && pnpm -C apps/web typecheck && pnpm -C apps/web test"
