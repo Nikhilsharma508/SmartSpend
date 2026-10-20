@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import LiquidSlider from "@/components/kokonutui/liquid-slider"
 import { KpiCard } from "@/components/kpi-card"
 import { ProfitCurveChart } from "@/components/charts/profit-curve-chart"
+import { LoadError } from "@/components/load-error"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,13 +23,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useFixtures } from "@/hooks/use-fixtures"
+import { useOverview } from "@/hooks/use-overview"
 import { buildCsv, downloadCsv } from "@/lib/csv"
 import { interpPoint, intFmt, rateFmt, usd } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export default function PlannerPage() {
-  const { data: fx, isPending, isError, error } = useFixtures()
+  const { data: fx, isPending, isError, error } = useOverview()
   const [depth, setDepth] = useState<number | null>(null)
 
   const curve = fx?.profit_curve
@@ -84,11 +85,7 @@ export default function PlannerPage() {
   }
 
   if (isError || !fx || !curve || !chosen) {
-    return (
-      <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
-        {(error as Error | null)?.message ?? "Fixtures failed to load."}
-      </div>
-    )
+    return <LoadError error={error} />
   }
 
   const a = fx.assumptions

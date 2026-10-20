@@ -16,7 +16,10 @@ export default defineConfig({
     strictPort: true,
     // Proxy straight to the IPv4 loopback uvicorn binds by default. `localhost`
     // can resolve to ::1 first on macOS, which added connect latency.
-    proxy: { "/api": { target: "http://127.0.0.1:8000", changeOrigin: true } },
+    proxy: {
+      "/api": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "/health": { target: "http://127.0.0.1:8000", changeOrigin: true },
+    },
   },
   test: {
     environment: "happy-dom",

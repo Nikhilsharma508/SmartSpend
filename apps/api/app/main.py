@@ -1,27 +1,23 @@
 """FastAPI application entrypoint."""
 
-import json
+import threading
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 
 from .api.v1.router import api_router
 from .core.config import settings
 
-FIXTURES_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "apps"
-    / "web"
-    / "src"
-    / "api"
-    / "mock"
-    / "fixtures.json"
-)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # The policy-tree fit is ~20 s; do it off the event loop so /health answers
+    # immediately and the first page view does not pay for it.
+    from .api.v1.overview import warm_overview
+
+    threading.Thread(target=warm_overview, daemon=True, name="overview-warmup").start()
+
+    # Best-effort: register the champion in MLflow on boot (no-op once logged).
     try:
         from packages.tracking.mlflow import log_champion
 
@@ -33,11 +29,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 app.include_router(api_router, prefix="/api/v1")
-
-
-@app.get("/api/fixtures")
-def fixtures() -> dict:
-    return json.loads(FIXTURES_PATH.read_text())
 
 
 @app.get("/health", tags=["health"])

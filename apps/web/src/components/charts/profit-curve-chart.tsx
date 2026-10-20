@@ -6,7 +6,7 @@ import { interpPoint, intFmt, rateFmt, usd, usdSigned } from "@/lib/format"
 /**
  * The planner's hero chart: the tool's profit curve over targeting depth.
  *
- * Numbers come straight from `optimize_budget` (the fixture dump); the only
+ * Numbers come straight from `/api/v1/overview` (`optimize_budget`); the only
  * client-side geometry is scale math. The chosen depth is draggable —
  * pointer drag, then a spring snap to the nearest grid point on release.
  */

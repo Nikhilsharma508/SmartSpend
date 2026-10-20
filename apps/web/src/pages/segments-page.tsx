@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/card"
 import { SegmentUpliftChart } from "@/components/charts/segment-uplift-chart"
 import type { Segment } from "@/api/types"
-import { useFixtures } from "@/hooks/use-fixtures"
+import { LoadError } from "@/components/load-error"
+import { useOverview } from "@/hooks/use-overview"
 import { intFmt, rateFmt } from "@/lib/format"
 
 function UpliftBar({
@@ -116,13 +117,15 @@ function SegmentCard({
 }
 
 export default function SegmentsPage() {
-  const { data: fx, isPending } = useFixtures()
+  const { data: fx, isPending, isError, error } = useOverview()
 
-  if (isPending || !fx) {
+  if (isPending) {
     return (
       <div className="h-96 animate-pulse rounded-xl border border-border/60 bg-muted/40" />
     )
   }
+
+  if (isError || !fx) return <LoadError error={error} />
 
   const profile = fx.segment_profile
   const maxUplift = Math.max(...profile.segments.map((s) => s.uplift_visit_ci_high))

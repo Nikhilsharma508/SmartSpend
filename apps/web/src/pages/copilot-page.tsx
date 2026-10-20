@@ -2,9 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import {
   Bot,
+  Calculator,
   CheckCircle2,
+  ChevronDown,
   ListOrdered,
+  Network,
+  PenLine,
   Plug,
+  Route,
   ShieldCheck,
   Sparkles,
   XCircle,
@@ -26,12 +31,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type {
-  CopilotDemo,
-  FastPathStr,
-  ValidationCheck,
-} from "@/api/types"
-import { MEASURED, fixtures, findDemo } from "@/api/mock/fixtures"
+import { askCopilot, type WriterProvider } from "@/api/client"
+import type { CopilotPackage, FastPathStr, ValidationCheck } from "@/api/types"
 import { seconds, usd } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -39,8 +40,8 @@ import { cn } from "@/lib/utils"
 
 type Msg =
   | { kind: "user"; text: string }
-  | { kind: "assistant"; demo: CopilotDemo }
-  | { kind: "notfound"; question: string }
+  | { kind: "assistant"; pkg: CopilotPackage }
+  | { kind: "error"; text: string }
 
 const FAST_PATH_STYLES: Record<FastPathStr, string> = {
   brief: "bg-primary/15 text-primary border-primary/40",
@@ -49,12 +50,7 @@ const FAST_PATH_STYLES: Record<FastPathStr, string> = {
   redirect: "border-border bg-muted text-muted-foreground",
 }
 
-const stageOrder = (d: CopilotDemo): string[] => {
-  const stages = ["gate"]
-  if (d.tool_runs.length > 0) stages.push("tools")
-  if (d.fast_path === "brief") stages.push("write", "validate")
-  return stages
-}
+const PIPELINE_STAGES = ["gate", "tools", "write", "validate"] as const
 
 const stageLabels: Record<string, string> = {
   gate: "routing the question",
@@ -63,57 +59,25 @@ const stageLabels: Record<string, string> = {
   validate: "tracing every number",
 }
 
-function buildSteps(d: CopilotDemo, stage: number): AgentStep[] {
-  const order = stageOrder(d)
-  const done = (name: string): AgentStep => {
-    switch (name) {
-      case "gate":
-        return {
-          id: "gate",
-          label: "Gate — routing the question",
-          status: "done",
-          detail: [
-            `intent: ${d.intent} · fast path: ${d.fast_path}`,
-            "router: keyword fallback (offline playback)",
-          ],
-        }
-      case "tools":
-        return {
-          id: "tools",
-          label: "Plan — decision tools",
-          status: "done",
-          detail: d.tool_runs.map((t) => `${t.name} — ok`),
-        }
-      case "write":
-        return {
-          id: "write",
-          label: "Write — template floor",
-          status: "done",
-          detail: [`provider: ${d.provider}`, `drafts: ${d.draft_attempts}`],
-        }
-      case "validate":
-        return {
-          id: "validate",
-          label: "Validate — number trace",
-          status: "done",
-          detail: d.validation
-            ? [
-                `${d.validation.checks.filter((c) => c.passed).length}/${d.validation.checks.length} checks passed — V1 numbers, V2 units, V3 causal rubric, V4 sections`,
-              ]
-            : [],
-        }
-      default:
-        return { id: name, label: name, status: "done" }
-    }
-  }
-  const running = (name: string): AgentStep => ({ ...done(name), status: "running" })
-  return order.map((name, i) => {
-    if (i < stage) return done(name)
-    return name === order[stage] ? running(name) : { ...done(name), status: "pending" }
-  })
+const stageDetails: Record<string, string> = {
+  gate: "intent + policy · missing · confidence",
+  tools: "profit curve · budget · segments · power",
+  write: "the writer sees tool outputs only",
+  validate: "V1 numbers · V2 units · V3 causal · V4 sections",
 }
 
-/** Markdown-lite renderer for the template writer's prose. */
+function pendingSteps(stage: number): AgentStep[] {
+  return PIPELINE_STAGES.map((name, i) => ({
+    id: name,
+    label: `${name[0]!.toUpperCase()}${name.slice(1)} — ${stageLabels[name]}`,
+    status: i < stage ? "done" : i === stage ? "running" : "pending",
+    detail: [stageDetails[name]],
+  }))
+}
+
+/* ------------------------------------------------------------------ */
+
+/** Markdown-lite renderer for the writer's prose (headings, bullets, bold). */
 function ProseLite({ text }: { text: string }) {
   const nodes: React.ReactNode[] = []
   let bullets: string[] = []
@@ -171,35 +135,19 @@ function inline(text: string): React.ReactNode {
   )
 }
 
-function VerdictRow({ d }: { d: CopilotDemo }) {
-  const mismatch =
-    d.expected_fast_path !== null &&
-    (d.expected_fast_path !== d.fast_path || d.expected_intent !== d.intent)
+/* ------------------------------------------------------------------ */
+
+function VerdictRow({ pkg }: { pkg: CopilotPackage }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Badge variant="secondary" className="text-[10px] capitalize">
-        {d.intent.replace("_", " ")}
+        {pkg.intent.replace("_", " ")}
       </Badge>
-      <Badge className={cn("border text-[10px] capitalize", FAST_PATH_STYLES[d.fast_path])}>
-        {d.fast_path}
+      <Badge className={cn("border text-[10px] capitalize", FAST_PATH_STYLES[pkg.fast_path])}>
+        {pkg.fast_path}
       </Badge>
-      {mismatch && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge variant="outline" className="gap-1 border-amber-400/60 text-[10px] text-amber-500">
-              <ListOrdered className="size-3" />
-              offline router miss
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-80">
-            Live labels expect {d.expected_intent}/{d.expected_fast_path}. The offline
-            keyword router is the documented fallback floor; the live Decisions API
-            answered these correctly ({MEASURED.seed_fast_path_accuracy}).
-          </TooltipContent>
-        </Tooltip>
-      )}
       <Badge variant="outline" className="gap-1 font-mono text-[10px] normal-case text-muted-foreground">
-        {seconds(d.latency_s)} · {d.router.replace("_", " ")}
+        {seconds(pkg.latency_s)} · {pkg.router.replace("_", " ")}
       </Badge>
     </div>
   )
@@ -230,8 +178,8 @@ function ValidationBlock({ checks }: { checks: ValidationCheck[] }) {
   )
 }
 
-function AssistantCard({ demo }: { demo: CopilotDemo }) {
-  const s = demo.scenario
+function AssistantCard({ pkg }: { pkg: CopilotPackage }) {
+  const s = pkg.scenario
   return (
     <motion.div
       initial={{ opacity: 0, y: 10, scale: 0.995 }}
@@ -241,7 +189,7 @@ function AssistantCard({ demo }: { demo: CopilotDemo }) {
       <Card className="border-border/60 bg-card/70 backdrop-blur-sm">
         <CardContent className="space-y-3 pt-5">
           <div className="flex items-start justify-between gap-3">
-            <VerdictRow d={demo} />
+            <VerdictRow pkg={pkg} />
             <Bot className="size-4 shrink-0 text-muted-foreground" />
           </div>
 
@@ -270,21 +218,21 @@ function AssistantCard({ demo }: { demo: CopilotDemo }) {
             </div>
           )}
 
-          {demo.prose && <ProseLite text={demo.prose} />}
+          {pkg.prose && <ProseLite text={pkg.prose} />}
 
-          {demo.fast_path === "clarify" && demo.clarify_question && (
+          {pkg.fast_path === "clarify" && pkg.clarify_question && (
             <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-3 text-[13px] text-amber-600 dark:text-amber-300">
-              {demo.clarify_question}
+              {pkg.clarify_question}
             </div>
           )}
 
-          {demo.validation && demo.fast_path === "brief" && (
-            <ValidationBlock checks={demo.validation.checks} />
+          {pkg.validation && pkg.fast_path === "brief" && (
+            <ValidationBlock checks={pkg.validation.checks} />
           )}
 
-          {demo.citations.length > 0 && (
+          {pkg.citations.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {demo.citations.map((c, i) => (
+              {pkg.citations.map((c, i) => (
                 <Tooltip key={i}>
                   <TooltipTrigger asChild>
                     <Badge
@@ -301,9 +249,9 @@ function AssistantCard({ demo }: { demo: CopilotDemo }) {
           )}
 
           <div className="flex items-center gap-2 border-t border-border/40 pt-2 font-mono text-[10px] text-muted-foreground">
-            trace {demo.trace_id} · {demo.provider} · {demo.draft_attempts} draft
-            {demo.draft_attempts > 1 ? "s" : ""}
-            {demo.degraded && (
+            trace {pkg.trace_id} · {pkg.provider} · {pkg.draft_attempts} draft
+            {pkg.draft_attempts > 1 ? "s" : ""}
+            {pkg.degraded && (
               <Badge className="border border-red-400/50 bg-red-500/10 text-[9px] text-red-400">
                 degraded
               </Badge>
@@ -317,66 +265,174 @@ function AssistantCard({ demo }: { demo: CopilotDemo }) {
 
 /* ------------------------------------------------------------------ */
 
-/**
- * Question taxonomy — every verdict shape the copilot can produce, with the
- * verbatim recorded examples that exercise it (ids index copilot_demos so the
- * text is the real seed question, never paraphrased).
- */
+/** The pipeline, spelled out — the LLM only routes and writes prose. */
+const ARCHITECTURE = [
+  {
+    icon: Route,
+    name: "Gate — route the question",
+    engine: "LLM classifier · Decisions API",
+    copy: "Classifies intent and returns three probabilities: policy risk, missing inputs and confidence. Thresholds live in configs/copilot.yaml. If the API is unreachable, a deterministic keyword router takes over and says so in the trace.",
+  },
+  {
+    icon: ListOrdered,
+    name: "Plan — extract the scenario",
+    engine: "Python rules · no LLM",
+    copy: "Parses budget, cost per contact, MDE and daily volume. Every default is recorded in assumptions_used. Invalid or negative money becomes one clarifying question instead of a guess.",
+  },
+  {
+    icon: Calculator,
+    name: "Tools — compute the numbers",
+    engine: "packages.decision · deterministic",
+    copy: "optimize_budget, compare_scenarios, get_segment_profile, design_ab_test and get_model_card run on the champion's holdout. The LLM never computes or rounds a number.",
+  },
+  {
+    icon: PenLine,
+    name: "Write — narrate the brief",
+    engine: "LLM writer · template floor",
+    copy: "The writer receives only the tool outputs and turns them into prose. Pick the provider below: template (no network), Ollama (local gpt-oss:120b-cloud), or the Azure writer. A failing LLM degrades to the template, never to invented numbers.",
+  },
+  {
+    icon: ShieldCheck,
+    name: "Validate — trace every number",
+    engine: "Python validator · no LLM",
+    copy: "V1 matches every printed number against a tool output (1% tolerance), V2 forbids non-USD units, V3 checks causal claims, V4 checks the required sections. One rewrite is allowed, then the answer is flagged UNVERIFIED.",
+  },
+]
+
+function ArchitecturePanel() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-2xl border border-border/70 bg-card/70 backdrop-blur-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left"
+      >
+        <Network className="size-4 shrink-0 text-muted-foreground" />
+        <span className="text-sm font-medium">LLM architecture — how an answer is built</span>
+        <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">
+          gate · plan · tools · write · validate
+        </span>
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="space-y-3 border-t border-border/50 px-4 py-3">
+              {ARCHITECTURE.map((stage, i) => (
+                <div key={stage.name} className="flex gap-3">
+                  <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40">
+                    <stage.icon className="size-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0 text-[12px]">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="font-medium">
+                        {i + 1} · {stage.name}
+                      </span>
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {stage.engine}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                      {stage.copy}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              <p className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                Division of labour: the LLM does two jobs — <strong>routing</strong> and{" "}
+                <strong>prose</strong>. Money, segments and validation are code. That is why
+                the validator can trace every number in the answer back to a tool run.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
 const QUESTION_KINDS: {
   key: string
   label: string
   verdict: FastPathStr
   note: string
-  demoIds: string[]
+  examples: string[]
 }[] = [
   {
     key: "plan",
     label: "Plan a campaign",
     verdict: "brief",
     note: "budget and/or cost per contact stated → depth + expected profit",
-    demoIds: ["plan_budget_500", "plan_budget_2000", "plan_no_budget"],
+    examples: [
+      "I have $500 to spend on contacts at $0.10 each — how deep should I target and what should I expect to earn?",
+      "Plan a $2,000 email campaign for me — who should get it?",
+    ],
   },
   {
     key: "what_if",
     label: "What-if",
     verdict: "brief",
     note: "re-prices the plan under new assumptions",
-    demoIds: ["whatif_cost_rise", "whatif_budget_double"],
+    examples: ["What if contact cost rises to $0.60?", "What if we doubled the budget to $1,000?"],
   },
   {
     key: "explain",
     label: "Explain the model",
     verdict: "brief",
     note: "who gets targeted and what each segment earns",
-    demoIds: ["explain_persuadables", "explain_fairness"],
+    examples: [
+      "Who are the persuadables and who should we avoid targeting?",
+      "Explain the segments the model found, and how targeting rates differ by zip code area.",
+    ],
   },
   {
     key: "test",
     label: "Size a test",
     verdict: "brief",
     note: "MDE and daily volume in → customers per arm out",
-    demoIds: ["test_duration", "test_mde"],
+    examples: [
+      "We see 2,000 customers a day — how long should we test a new offer?",
+      "How many customers do we need per arm to detect a 1 percentage point lift on visits?",
+    ],
   },
   {
     key: "decline",
     label: "Policy decline",
     verdict: "decline",
     note: "targeting on protected or proxy attributes is refused",
-    demoIds: ["policy_gender", "policy_proxy_zip"],
+    examples: [
+      "Only target women aged 25-34 for this offer.",
+      "Exclude everyone from low-income zip codes.",
+    ],
   },
   {
     key: "clarify",
     label: "Clarify",
     verdict: "clarify",
-    note: "nothing stated → one question back, no brief (live-gate behavior)",
-    demoIds: ["campaign_clarify", "ambiguous_campaign"],
+    note: "nothing stated → one question back, no brief",
+    examples: ["Should we run a campaign?", "Help me with marketing."],
   },
   {
     key: "redirect",
     label: "Off-scope",
     verdict: "redirect",
     note: "poems, weather — pointed back to the menu",
-    demoIds: ["oos_poem", "oos_weather"],
+    examples: ["Write me a poem about spring.", "What's the weather tomorrow?"],
   },
 ]
 
@@ -387,84 +443,91 @@ const DOT_COLOR: Record<FastPathStr, string> = {
   redirect: "bg-zinc-400",
 }
 
+const WRITERS: { name: WriterProvider; description: string }[] = [
+  { name: "ollama", description: "Local Ollama · gpt-oss:120b-cloud (the configured writer)" },
+  { name: "template", description: "Deterministic house template — no network, always works" },
+  { name: "neurometric", description: "Azure writer — needs its environment variables" },
+]
+
 export default function CopilotPage() {
-  const [messages, setMessages] = useState<Msg[]>([
-    { kind: "assistant", demo: fixtures.copilot_demos[0]! },
-  ])
-  const [pendingDemo, setPendingDemo] = useState<CopilotDemo | null>(null)
-  const [stage, setStage] = useState(0)
+  const [messages, setMessages] = useState<Msg[]>([])
+  const [pending, setPending] = useState<{ question: string; stage: number } | null>(null)
   const [openKind, setOpenKind] = useState<string | null>("plan")
+  const [provider, setProvider] = useState<WriterProvider>("ollama")
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const resolvePending = useRef<(() => void) | null>(null)
-  const cancelled = useRef(false)
 
-  const run = (question: string): Promise<void> =>
-    new Promise((resolve) => {
-      if (pendingDemo) return resolve()
-      const demo = findDemo(question)
-      setMessages((m) => [...m, { kind: "user", text: question }])
-      if (!demo) {
-        setMessages((m) => [...m, { kind: "notfound", question }])
-        return resolve()
-      }
-      cancelled.current = false
-      resolvePending.current = resolve
-      setPendingDemo(demo)
-      setStage(0)
-    })
-
-  // advance the staged playback
-  useEffect(() => {
-    if (!pendingDemo) return
-    const order = stageOrder(pendingDemo)
-    if (stage >= order.length) {
-      const id = setTimeout(() => {
-        if (!cancelled.current) {
-          setMessages((m) => [...m, { kind: "assistant", demo: pendingDemo }])
-        }
-        setPendingDemo(null)
-        resolvePending.current?.()
-        resolvePending.current = null
-      }, 300)
-      return () => clearTimeout(id)
+  const lastPkg = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m?.kind === "assistant") return m.pkg
     }
-    const latencies = pendingDemo.stage_latencies
-    const measured = (latencies[order[stage]!] ?? 0) * 1000
-    const duration = Math.max(450, Math.min(measured, 2500))
-    const id = setTimeout(() => setStage((s) => s + 1), duration)
-    return () => clearTimeout(id)
-  }, [pendingDemo, stage])
+    return null
+  }, [messages])
 
   // keep the transcript pinned to the latest entry
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
-  }, [messages.length, stage, pendingDemo])
+  }, [messages.length, pending])
 
-  const islandTasks: IslandTask[] = useMemo(() => {
-    if (pendingDemo) {
-      const order = stageOrder(pendingDemo)
-      return [
+  // the pipeline stages are known even before the response lands
+  useEffect(() => {
+    if (!pending || pending.stage >= PIPELINE_STAGES.length - 1) return
+    const id = setTimeout(
+      () => setPending((p) => (p ? { ...p, stage: p.stage + 1 } : p)),
+      pending.stage === 0 ? 700 : 1400,
+    )
+    return () => clearTimeout(id)
+  }, [pending])
+
+  const run = async (
+    question: string,
+    writer: string = provider,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const q = question.trim()
+    if (!q || pending) return
+    setMessages((m) => [...m, { kind: "user", text: q }])
+    setPending({ question: q, stage: 0 })
+    try {
+      const pkg = await askCopilot(q, writer as WriterProvider, signal)
+      setMessages((m) => [...m, { kind: "assistant", pkg }])
+    } catch (err) {
+      const e = err as Error
+      setMessages((m) => [
+        ...m,
+        {
+          kind: "error",
+          text:
+            e.name === "AbortError"
+              ? "Request stopped."
+              : `The copilot request failed: ${e.message}`,
+        },
+      ])
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const islandTasks: IslandTask[] = pending
+    ? [
         {
           id: "copilot-run",
-          label: pendingDemo.id,
-          detail: stageLabels[order[Math.min(stage, order.length - 1)]!],
+          label: pending.question,
+          detail: stageLabels[PIPELINE_STAGES[Math.min(pending.stage, 3)]!],
           status: "running",
-          progress: stage / order.length,
+          progress: pending.stage / PIPELINE_STAGES.length,
         },
       ]
-    }
-    const last = [...messages].reverse().find((m): m is Extract<Msg, { kind: "assistant" }> => m.kind === "assistant")
-    if (!last || last.demo.id === fixtures.copilot_demos[0]!.id) return []
-    return [
-      {
-        id: "copilot-run",
-        label: last.demo.id,
-        detail: `${last.demo.fast_path} · ${seconds(last.demo.latency_s)}`,
-        status: "done",
-        action: { label: "trace", onClick: () => undefined },
-      },
-    ]
-  }, [pendingDemo, stage, messages])
+    : lastPkg
+      ? [
+          {
+            id: "copilot-run",
+            label: lastPkg.fast_path,
+            detail: `${lastPkg.intent} · ${seconds(lastPkg.latency_s)}`,
+            status: "done",
+          },
+        ]
+      : []
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_19rem]">
@@ -473,13 +536,26 @@ export default function CopilotPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Campaign copilot</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Gate → plan → write → validate, per request. Playback replays the 15
-            recorded seed-eval runs; every number the copilot prints was traced to a
-            tool output by the validator.
+            Gate → plan → write → validate, per request. Every answer is produced by the
+            live pipeline and every number is traced back to a tool output by the
+            validator.
           </p>
         </div>
 
+        <ArchitecturePanel />
+
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto pr-1">
+          {messages.length === 0 && !pending && (
+            <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+              <Bot className="size-5 text-muted-foreground" />
+              <p className="text-sm font-medium">Ask about a budget, a test size, or the model.</p>
+              <p className="max-w-md text-xs text-muted-foreground">
+                The answer comes from the live pipeline; the panel above shows where the LLM
+                sits and what code computes.
+              </p>
+            </div>
+          )}
+
           {messages.map((m, i) => (
             <div key={i}>
               {m.kind === "user" && (
@@ -493,24 +569,22 @@ export default function CopilotPage() {
                   </motion.div>
                 </div>
               )}
-              {m.kind === "assistant" && <AssistantCard demo={m.demo} />}
-              {m.kind === "notfound" && (
-                <Card className="border-dashed border-border/70 bg-muted/20">
-                  <CardContent className="pt-5 text-[13px] text-muted-foreground">
-                    Not in the offline corpus. The FastAPI service (the next Day-6
-                    step) answers live questions; for now try one of the recorded
-                    runs — the chips below cover every verdict shape.
+              {m.kind === "assistant" && <AssistantCard pkg={m.pkg} />}
+              {m.kind === "error" && (
+                <Card className="border-destructive/40 bg-destructive/5">
+                  <CardContent className="pt-5 text-[13px] text-destructive">
+                    {m.text}
                   </CardContent>
                 </Card>
               )}
             </div>
           ))}
 
-          {pendingDemo && (
+          {pending && (
             <div className="space-y-3">
-              <AILoadingState steps={buildSteps(pendingDemo, stage)} collapseWhenDone={false} />
+              <AILoadingState steps={pendingSteps(pending.stage)} collapseWhenDone={false} />
               <AnimatePresence>
-                {stageOrder(pendingDemo)[stage] === "write" && (
+                {pending.stage >= 2 && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -544,7 +618,7 @@ export default function CopilotPage() {
                 <button
                   key={k.key}
                   onClick={() => setOpenKind(active ? null : k.key)}
-                  disabled={pendingDemo !== null}
+                  disabled={pending !== null}
                   className={cn(
                     "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-50",
                     active
@@ -572,29 +646,23 @@ export default function CopilotPage() {
                     className="mt-2.5 space-y-1"
                   >
                     <p className="text-[11px] text-muted-foreground">{kind.note}</p>
-                    {kind.demoIds.map((id) => {
-                      const demo = fixtures.copilot_demos.find((d) => d.id === id)
-                      if (!demo) return null
-                      return (
-                        <button
-                          key={id}
-                          onClick={() => run(demo.question)}
-                          disabled={pendingDemo !== null}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-colors hover:border-primary/50 disabled:opacity-50",
-                            demo.fast_path !== demo.expected_fast_path
-                              ? "border-amber-400/40 bg-amber-400/5"
-                              : "border-border/50 bg-background/40",
-                          )}
+                    {kind.examples.map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => void run(q)}
+                        disabled={pending !== null}
+                        className="flex w-full items-center gap-2 rounded-lg border border-border/50 bg-background/40 px-2.5 py-1.5 text-left text-[12px] transition-colors hover:border-primary/50 disabled:opacity-50"
+                      >
+                        <span className={cn("size-1.5 shrink-0 rounded-full", DOT_COLOR[kind.verdict])} />
+                        <span className="flex-1 text-foreground/90">{q}</span>
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 text-[10px] capitalize text-muted-foreground"
                         >
-                          <span className={cn("size-1.5 shrink-0 rounded-full", DOT_COLOR[demo.fast_path])} />
-                          <span className="flex-1 truncate text-foreground/90">{demo.question}</span>
-                          <Badge variant="outline" className="shrink-0 text-[10px] capitalize text-muted-foreground">
-                            → {demo.fast_path}
-                          </Badge>
-                        </button>
-                      )
-                    })}
+                          → {kind.verdict}
+                        </Badge>
+                      </button>
+                    ))}
                   </motion.div>
                 )
               })()}
@@ -604,71 +672,78 @@ export default function CopilotPage() {
         {/* prompt */}
         <div className="rounded-2xl border border-border/70 bg-card/70 p-2 backdrop-blur-sm">
           <p className="px-2 pb-1 text-[10px] text-muted-foreground">
-            playback uses the recorded template writer; writer choice matters live
+            writer provider is sent with the request; a failing LLM falls back to the
+            template, never to invented numbers
           </p>
           <AIPrompt
-            models={MEASURED.writers.map((w) => ({ name: w.name, description: w.description }))}
-            defaultModel={MEASURED.writers[1]?.name}
+            models={WRITERS.map((w) => ({ name: w.name, description: w.description }))}
+            defaultModel={provider}
             placeholder="Ask the copilot — a budget, a margin, a test size…"
             headerText=""
-            onSubmit={(value) => run(value)}
+            onSubmit={(value, model, { signal }) => {
+              setProvider(model as WriterProvider)
+              return run(value, model, signal)
+            }}
           />
         </div>
       </div>
 
-      {/* system card sidebar */}
+      {/* live run card */}
       <div className="space-y-4">
         <Card className="border-border/60 bg-card/70 backdrop-blur-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
               <Plug className="size-4 text-muted-foreground" />
-              <CardTitle className="text-sm">System card — live service</CardTitle>
+              <CardTitle className="text-sm">Last live run</CardTitle>
             </div>
-            <CardDescription>measured with the Decisions API on, Day 5</CardDescription>
+            <CardDescription>
+              {lastPkg
+                ? `trace ${lastPkg.trace_id}`
+                : "Ask a question — the gate, tool runs and validator verdict land here."}
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2.5 text-[12px]">
-            <Row k="gate (Decisions API)" v={`${MEASURED.gate_latency_s} s`} />
-            <Row k="fast path band" v={MEASURED.fast_path_band_s} />
-            <Row k="seed fast-path accuracy" v={MEASURED.seed_fast_path_accuracy} />
-            <Row k="brief latency p50 / p95" v={`${MEASURED.p50_s} / ${MEASURED.p95_s} s`} />
-            <Row k="context boot" v={MEASURED.context_boot_s + " s"} />
-            <Row k="first explain" v={MEASURED.first_explain_s} />
-            <div className="space-y-1.5 pt-2">
-              {MEASURED.writers.map((w) => (
-                <div key={w.name} className="rounded-md bg-muted/40 px-2.5 py-2">
-                  <div className="font-mono text-[11px] font-medium">{w.name}</div>
-                  <div className="mt-0.5 text-[11px] text-muted-foreground">{w.description}</div>
-                </div>
-              ))}
-            </div>
-            <p className="pt-1 font-mono text-[10px] text-muted-foreground">{MEASURED.source}</p>
-          </CardContent>
+          {lastPkg && (
+            <CardContent className="space-y-2.5 text-[12px]">
+              <Row k="intent → fast path" v={`${lastPkg.intent} → ${lastPkg.fast_path}`} />
+              <Row k="router" v={lastPkg.router.replace("_", " ")} />
+              <Row k="writer" v={lastPkg.provider} />
+              <Row k="latency" v={seconds(lastPkg.latency_s)} />
+              <Row k="drafts" v={String(lastPkg.draft_attempts)} />
+              <Row k="tool runs" v={String(lastPkg.tool_runs.length)} />
+              <Row
+                k="validation"
+                v={
+                  lastPkg.validation
+                    ? `${lastPkg.validation.checks.filter((c) => c.passed).length}/${lastPkg.validation.checks.length} passed`
+                    : "no draft to grade"
+                }
+              />
+              <Row k="citations" v={String(lastPkg.citations.length)} />
+              {lastPkg.degraded && (
+                <p className="pt-1 text-[11px] text-amber-500">
+                  Degraded: at least one validator check failed and was flagged
+                  UNVERIFIED.
+                </p>
+              )}
+            </CardContent>
+          )}
         </Card>
 
         <Card className="border-border/60 bg-card/70 backdrop-blur-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Recorded corpus</CardTitle>
-            <CardDescription>15 seed-eval runs, offline router + template</CardDescription>
+            <CardTitle className="text-sm">Live, not a replay</CardTitle>
+            <CardDescription>what changed when the API came online</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-1.5">
-            {fixtures.copilot_demos.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => run(d.question)}
-                disabled={pendingDemo !== null}
-                className={cn(
-                  "rounded-md border px-2 py-1 font-mono text-[10px] transition-colors hover:border-primary/50 disabled:opacity-50",
-                  d.fast_path !== d.expected_fast_path
-                    ? "border-amber-400/40 text-amber-600 dark:text-amber-300"
-                    : "border-border/70 text-muted-foreground",
-                )}
-              >
-                {d.id}
-              </button>
-            ))}
-            <p className="pt-1 text-[10px] text-muted-foreground">
-              amber = offline router missed the live label (documented keyword-floor
-              gaps: clarifications and one proxy-zip case).
+          <CardContent className="space-y-1.5 text-[11px] text-muted-foreground">
+            <p>• Every question runs the real pipeline; nothing is matched to a recording.</p>
+            <p>
+              • The header badge polls <span className="font-mono">/health</span>; if the API
+              is down the UI says so and offers no fallback numbers.
+            </p>
+            <p>
+              • The planner, segments and test-design pages read{" "}
+              <span className="font-mono">/api/v1/overview</span>, computed from the same
+              champion.
             </p>
           </CardContent>
         </Card>

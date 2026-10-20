@@ -10,7 +10,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { MEASURED } from "@/api/mock/fixtures"
+import { useApiHealth } from "@/hooks/use-api-health"
 import { cn } from "@/lib/utils"
 
 const TABS = [
@@ -20,37 +20,124 @@ const TABS = [
   { to: "/copilot", label: "Copilot" },
 ]
 
-const OFFLINE_NOTE = `Offline playback of recorded tool runs (${MEASURED.source}). The FastAPI service goes live next.`
+/* ------------------------------------------------------------------ */
+/* theme: auto follows local time, then manual light / dark            */
+
+type ThemeMode = "auto" | "light" | "dark"
+
+const THEME_KEY = "smartspend-theme-mode"
+const AUTO_DARK_FROM = 19 // 19:00 local
+const AUTO_DARK_UNTIL = 7 // 07:00 local
+
+function autoTheme(now = new Date()): "light" | "dark" {
+  const hour = now.getHours()
+  return hour >= AUTO_DARK_FROM || hour < AUTO_DARK_UNTIL ? "dark" : "light"
+}
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
-  // async so the effect body itself never calls setState synchronously
-  const [mounted, setMounted] = useState(false)
+  const [mode, setMode] = useState<ThemeMode>(() => {
+    const stored = localStorage.getItem(THEME_KEY)
+    return stored === "light" || stored === "dark" || stored === "auto" ? stored : "auto"
+  })
+
   useEffect(() => {
-    const id = setTimeout(() => setMounted(true), 0)
-    return () => clearTimeout(id)
-  }, [])
-  const dark = mounted && resolvedTheme === "dark"
+    if (mode !== "auto") {
+      setTheme(mode)
+      return
+    }
+    const apply = () => setTheme(autoTheme())
+    apply()
+    // cross the day/night boundary without a reload
+    const id = setInterval(apply, 60_000)
+    return () => clearInterval(id)
+  }, [mode, setTheme])
+
+  const dark = resolvedTheme === "dark"
+  const next: ThemeMode = mode === "auto" ? "light" : mode === "light" ? "dark" : "auto"
+
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label="Toggle theme"
-      onClick={() => setTheme(dark ? "light" : "dark")}
-    >
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.span
-          key={dark ? "moon" : "sun"}
-          initial={{ rotate: -90, opacity: 0, scale: 0.6 }}
-          animate={{ rotate: 0, opacity: 1, scale: 1 }}
-          exit={{ rotate: 90, opacity: 0, scale: 0.6 }}
-          transition={{ type: "spring", stiffness: 300, damping: 22 }}
-          className="flex"
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Theme: ${mode === "auto" ? `auto (${dark ? "night" : "day"})` : mode}. Switch to ${next}.`}
+          onClick={() => {
+            setMode(next)
+            localStorage.setItem(THEME_KEY, next)
+          }}
         >
-          {dark ? <Moon className="size-4" /> : <Sun className="size-4" />}
-        </motion.span>
-      </AnimatePresence>
-    </Button>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={dark ? "moon" : "sun"}
+              initial={{ rotate: -90, opacity: 0, scale: 0.6 }}
+              animate={{ rotate: 0, opacity: 1, scale: 1 }}
+              exit={{ rotate: 90, opacity: 0, scale: 0.6 }}
+              transition={{ type: "spring", stiffness: 300, damping: 22 }}
+              className="flex"
+            >
+              {dark ? <Moon className="size-4" /> : <Sun className="size-4" />}
+            </motion.span>
+          </AnimatePresence>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        Theme: {mode === "auto" ? `auto (${dark ? "night" : "day"})` : mode} · auto follows
+        local time (dark 19:00–07:00)
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+function ApiBadge() {
+  const { isPending, isError } = useApiHealth()
+  const state = isPending ? "connecting" : isError ? "offline" : "live"
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={cn(
+            "gap-1.5 text-[11px]",
+            state === "live"
+              ? "border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+              : state === "offline"
+                ? "border-red-400/50 text-red-500"
+                : "border-dashed text-muted-foreground",
+          )}
+        >
+          <motion.span
+            className={cn(
+              "size-1.5 rounded-full",
+              state === "live"
+                ? "bg-emerald-500"
+                : state === "offline"
+                  ? "bg-red-500"
+                  : "bg-muted-foreground",
+            )}
+            animate={
+              state === "connecting"
+                ? { opacity: [1, 0.3, 1] }
+                : state === "offline"
+                  ? { opacity: [1, 0.4, 1] }
+                  : undefined
+            }
+            transition={{ repeat: Infinity, duration: 1.8 }}
+          />
+          {state === "live" ? "live api" : state === "offline" ? "api offline" : "connecting"}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-72">
+        {state === "live"
+          ? "FastAPI :8000 is healthy. Every number on this page is computed by the decision tools for this request."
+          : state === "offline"
+            ? "The FastAPI service is not reachable. Start the stack with `npm run start`; the UI has no fallback data."
+            : "Checking the FastAPI service on :8000…"}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -139,24 +226,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavPill />
 
           <div className="flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge
-                  variant="outline"
-                  className="gap-1.5 border-dashed text-[11px] text-muted-foreground"
-                >
-                  <motion.span
-                    className="size-1.5 rounded-full bg-amber-400"
-                    animate={{ opacity: [1, 0.3, 1] }}
-                    transition={{ repeat: Infinity, duration: 1.8 }}
-                  />
-                  offline playback
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-72">
-                {OFFLINE_NOTE}
-              </TooltipContent>
-            </Tooltip>
+            <ApiBadge />
             <ThemeToggle />
           </div>
         </div>
@@ -166,8 +236,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <footer className="relative mx-auto max-w-6xl px-6 pb-10 text-xs text-muted-foreground">
         Profit in USD at the Day-1 assumptions (30% margin · $0.10/contact ·
-        $34.91/conversion). Numbers come from the registered champion on its
-        seed-42 test split (n = 8,523) — the tools' own outputs.
+        $34.91/conversion). Numbers are computed live from the registered champion on
+        its seed-42 test split (n = 8,523) — the tools' own outputs.
       </footer>
     </div>
   )

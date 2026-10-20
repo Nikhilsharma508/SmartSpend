@@ -48,10 +48,12 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   with `strictPort` so it never silently hops to 5174/5175, and the API is health-checked
   before the web server starts.
 
-- **Offline playback is the honest default, not a degraded one.** The UI only shows
-  numbers produced by real Day-4 tools and real copilot pipeline runs, replayed from
-  `apps/web/src/api/mock/fixtures.json` (its `generator` field records how it was
-  built). Never hand-invent a UI number; regenerate fixtures by running the tools.
+- **The UI is live, with no fallback data.** Pages read `/api/v1/overview` (computed
+  per process from the registered champion by the Day-4 tools) and the copilot posts
+  `/api/v1/copilot`; the header badge polls `/health` and says `api offline` rather
+  than showing stale numbers. Never hand-invent a UI number. `apps/web/tests/overview.json`
+  is a unit-test snapshot only — the shipped app never reads it. The first request after
+  boot waits for the ~20 s DRPolicyTree fit, which the API warms in a background thread.
 - `src/components/kokonutui/`, `src/components/charts/` (Bklit) and
   `src/components/shimmering-text.tsx` are registry-vendored and lint-relaxed in
   `eslint.config.js`. `charts/profit-curve-chart.tsx` and
@@ -59,8 +61,9 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
 - The shadcn CLI reads the **root** `tsconfig.json` for the `@/*` alias (hand-added
   there); pin the CLI (`pnpm dlx shadcn@4.21.0 add … -y`) and run it from `apps/web`.
   Registries: `@kokonutui/*`, `@bklit/*` via `components.json`.
-- "Offline playback" and the copilot question taxonomy are defined in
-  `docs/concepts.md` — keep that file in sync with the UI the same way as notebooks.
+- The live app wiring, the copilot question taxonomy and the LLM architecture panel
+  are defined in `docs/concepts.md` — keep that file in sync with the UI the same way
+  as notebooks.
 
 ## Git
 
@@ -95,9 +98,10 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   `ModuleNotFoundError: No module named 'packages'`.
 - **Most of the skeleton is real now.** Real code: `packages/datasets/`,
   `packages/causal/diagnostics.py`, `packages/decision/`, `packages/copilot/`,
-  `packages/plotting.py`, `pipelines/download.py`, `tests/`, `evals/`, and
-  `apps/web` (Day-6 frontend, offline playback). `packages/causal/` (rest) and
-  `apps/api/` are placeholders. Do not assume planned modules exist.
+  `packages/tracking/`, `packages/plotting.py`, `pipelines/download.py`, `tests/`,
+  `evals/`, `apps/api` (FastAPI + SQLite + MLflow) and `apps/web` (live Day-6
+  frontend). The rest of `packages/causal/` is still a placeholder. Do not assume
+  planned modules exist.
 - `data/raw/` and `data/processed/` are git-ignored (`.gitkeep` only); the raw CSV is
   fetched and checksum-verified by `pipelines/download.py`.
 

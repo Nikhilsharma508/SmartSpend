@@ -5,12 +5,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ThemeProvider } from "next-themes"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import App from "@/App"
-import { fixtures } from "@/api/mock/fixtures"
+import overview from "./overview.json"
 
-globalThis.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => fixtures,
-  }) as unknown as typeof fetch
+// The pages fetch /api/v1/overview and /health; there is no in-app fallback.
+const json = (body: unknown) => ({ ok: true, json: async () => body })
+
+globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+  const url = String(input)
+  if (url.includes("/health")) return json({ status: "ok", service: "SmartSpend" })
+  return json(overview)
+}) as unknown as typeof fetch
 
 
 class ResizeObserverStub {
@@ -67,7 +71,7 @@ function renderAt(path: string) {
   )
 }
 
-describe("app routes render from fixtures", () => {
+describe("app routes render from the live API payload", () => {
   it("planner shows the tool's KPIs, chart card and export", async () => {
     renderAt("/")
     // nav link plus the page heading, plus the tool's KPIs
@@ -92,12 +96,15 @@ describe("app routes render from fixtures", () => {
     expect(screen.getByText("How to read this")).toBeTruthy()
   })
 
-  it("copilot replays a recorded run", async () => {
+  it("copilot asks the live pipeline and explains its architecture", async () => {
     renderAt("/copilot")
     expect(await screen.findByText("Campaign copilot")).toBeTruthy()
-    expect(await screen.findByText("System card — live service")).toBeTruthy()
-    expect(screen.getByText("Recorded corpus")).toBeTruthy()
-    // the seeded playback of the first seed case + its corpus chip
-    expect(screen.getAllByText("plan_budget_500").length).toBeGreaterThanOrEqual(1)
+    expect(
+      screen.getByText("LLM architecture — how an answer is built"),
+    ).toBeTruthy()
+    expect(screen.getByText("Last live run")).toBeTruthy()
+    // the offline-playback UI is gone
+    expect(screen.queryByText(/offline playback/i)).toBeNull()
+    expect(screen.queryByText("Recorded corpus")).toBeNull()
   })
 })

@@ -2,7 +2,14 @@
 
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: Repo root (apps/api/app/core/config.py → up four).
+ROOT = Path(__file__).resolve().parents[4]
+# The copilot gate reads AZURE_* straight from the environment (the evals do the
+# same); pydantic-settings alone would leave os.environ untouched.
+load_dotenv(ROOT / ".env")
 
 
 class Settings(BaseSettings):

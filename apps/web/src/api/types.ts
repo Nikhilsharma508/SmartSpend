@@ -1,6 +1,6 @@
 // TS mirrors of the pydantic contracts the app consumes.
-// Kept snake_case to match the API JSON byte-for-byte; when apps/api lands,
-// openapi-generated types will replace this file (schema drift = type error).
+// Kept snake_case to match the API JSON byte-for-byte; apps/api serves them
+// live (openapi-generated types can replace this file; drift = type error).
 
 export interface Assumptions {
   margin_rate: number
@@ -140,7 +140,7 @@ export interface ScenarioFields {
   depth: number | null
   mde: number | null
   daily_eligible: number | null
-  assumptions_used: boolean
+  assumptions_used: string[]
   missing_fields: string[]
 }
 
@@ -164,21 +164,13 @@ export interface CopilotPackage {
   stage_latencies: Record<string, number>
 }
 
-export interface CopilotDemo extends CopilotPackage {
-  id: string
-  expected_intent: string | null
-  expected_fast_path: string | null
-  note: string | null
-}
-
-export interface FixturesMeta {
+export interface OverviewMeta {
   generated: string
   generator: string
-  mock: boolean
 }
 
-export interface Fixtures {
-  meta: FixturesMeta
+export interface Overview {
+  meta: OverviewMeta
   context: {
     n_test: number
     baseline_visit_rate: number
@@ -192,5 +184,4 @@ export interface Fixtures {
   segment_profile: SegmentProfile
   ab_designs: AbTestDesign[]
   model_card: ModelCard
-  copilot_demos: CopilotDemo[]
 }

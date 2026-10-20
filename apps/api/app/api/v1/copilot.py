@@ -1,13 +1,14 @@
 """Copilot endpoint — runs the grounded pipeline and persists the brief."""
 
 import json
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from packages.copilot import run_request
+from packages.copilot.providers import ProviderError
 
 from ...db.session import get_db
 from ...models.audit_log import AuditLog
@@ -18,14 +19,24 @@ router = APIRouter()
 
 DbDep = Annotated[Session, Depends(get_db)]
 
+WriterProvider = Literal["template", "ollama", "neurometric"]
+
 
 class CopilotRequest(BaseModel):
     question: str
+    #: Writer override for the ablation toggle in the UI; None uses configs/copilot.yaml.
+    provider: WriterProvider | None = None
 
 
 @router.post("")
 def answer(payload: CopilotRequest, db: DbDep) -> dict:
-    pkg = run_request(payload.question)
+    try:
+        pkg = run_request(payload.question, writer_provider=payload.provider)
+    except ProviderError as err:
+        raise HTTPException(
+            status_code=503,
+            detail=f"writer provider unavailable: {err}",
+        ) from err
 
     # Persist scenario + brief (best-effort; never blocks the response).
     scenario = Scenario(

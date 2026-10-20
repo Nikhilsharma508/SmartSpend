@@ -18,7 +18,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useFixtures } from "@/hooks/use-fixtures"
+import { LoadError } from "@/components/load-error"
+import { useOverview } from "@/hooks/use-overview"
 import { intFmt, rateFmt } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -30,12 +31,14 @@ const MDE_LABELS: Record<string, string> = {
 }
 
 export default function TestDesignPage() {
-  const { data: fx, isPending } = useFixtures()
+  const { data: fx, isPending, isError, error } = useOverview()
   const [chosenMde, setChosenMde] = useState(0.01)
 
-  if (isPending || !fx) {
+  if (isPending) {
     return <div className="h-96 animate-pulse rounded-xl border border-border/60 bg-muted/40" />
   }
+
+  if (isError || !fx) return <LoadError error={error} />
 
   const designs = fx.ab_designs
   const design = designs.find((d) => Math.abs(d.mde_absolute - chosenMde) < 1e-9) ?? designs[1]!

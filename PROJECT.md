@@ -201,7 +201,7 @@ A Python backend and ML packages behind a FastAPI service, with a React frontend
 | GenAI | raw `requests` HTTP — Decisions API gate + OpenAI-compatible chat completions (Ollama, NEUROMETRIC), `pydantic`, `python-dotenv` | Routing, brief writing, typed contracts |
 | API | FastAPI, Pydantic v2, SQLAlchemy + Alembic | Versioned REST endpoints; copilot responses streamed over SSE |
 | Storage | SQLite via SQLAlchemy + Alembic (`data/app/`); PostgreSQL documented as the production option | Scenarios, briefs, target lists, and an audit log of every LLM call and tool output |
-| Frontend | React + TypeScript (Vite), Motion, Tailwind, shadcn + Kokonut/Bklit registry components | Campaign planner, profit and uplift charts, copilot playback chat |
+| Frontend | React + TypeScript (Vite), Motion, Tailwind, shadcn + Kokonut/Bklit registry components | Campaign planner, profit and uplift charts, live copilot chat |
 | Observability | JSONL request traces (`traces/`), MLflow local tracking | Traces of copilot requests: latency, cost, tool calls, validator failures |
 | Infra and CI | `scripts/start_app.sh` (`npm run start`), GitHub Actions | One-command local stack without containers; lint, type checks, tests and an eval smoke run on every push |
 | Quality | `pytest`, `ruff`, `mypy`, Vitest | Backend and frontend tests; the copilot eval as a CI gate |
