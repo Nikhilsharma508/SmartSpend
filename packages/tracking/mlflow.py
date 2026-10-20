@@ -3,7 +3,7 @@
 MLflow is an optional, local-only dependency: if it is not installed or the
 tracking URI is unreachable, every helper degrades to a no-op so the API and
 pipelines keep working. Tracking is metadata-and-trace only: runs, params,
-metrics, tags and GenAI spans live in ``mlflow.db``. No artifacts are logged;
+metrics, tags and GenAI spans live in ``data/mlflow/mlflow.db``. No artifacts are logged;
 the joblib + provenance sidecar remains the load-path code of record.
 """
 
@@ -39,7 +39,7 @@ def tracking_available() -> bool:
 
 def _tracking_uri() -> str:
     """Same env var pydantic-settings reads; no import of the API package."""
-    return os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+    return os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///data/mlflow/mlflow.db")
 
 
 def _store_dir() -> Path:
@@ -47,7 +47,7 @@ def _store_dir() -> Path:
     if uri.startswith("file:"):
         path = Path(uri[len("file:") :])
         return path if path.is_absolute() else (REPO_ROOT / path).resolve()
-    return REPO_ROOT / "mlruns"
+    return REPO_ROOT / "data" / "mlflow" / "mlruns"
 
 
 def _mlflow_uri() -> str:
@@ -68,7 +68,12 @@ def _init_tracking() -> bool:
     import mlflow
 
     try:
-        mlflow.set_tracking_uri(_mlflow_uri())
+        uri = _mlflow_uri()
+        if uri.startswith("sqlite:///"):
+            Path(uri.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+        elif uri.startswith("file:"):
+            Path(uri.removeprefix("file:")).mkdir(parents=True, exist_ok=True)
+        mlflow.set_tracking_uri(uri)
         mlflow.set_experiment("smartspend")
         return True
     except Exception:  # noqa: BLE001 - tracking must never break a caller

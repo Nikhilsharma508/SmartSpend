@@ -155,11 +155,30 @@ section headers, in this order: {sections}. Keep it under about 400 words.\
 """
 
 
+#: Provenance-only tool fields the writer never quotes. They stay in the API
+#: result but are omitted from the LLM payload and the corresponding trace span.
+_OMIT_FROM_NARRATION: dict[str, frozenset[str]] = {
+    "get_model_card": frozenset({"data_sha256"}),
+}
+
+
+def trim_tool_output(name: str, output: Any) -> Any:
+    """Drop provenance-only fields (e.g. the dataset SHA) before narration/tracing."""
+    omit = _OMIT_FROM_NARRATION.get(name)
+    if not omit or not isinstance(output, dict):
+        return output
+    return {key: value for key, value in output.items() if key not in omit}
+
+
 def _tool_payload(request: DraftRequest) -> dict[str, Any]:
     """Tool runs as one JSON-able dict: success output, or the failure stub."""
     tools: dict[str, Any] = {}
     for run in request.tool_runs:
-        tools[run.name] = run.output if run.ok else {"UNAVAILABLE": run.error or "tool failed"}
+        tools[run.name] = (
+            trim_tool_output(run.name, run.output)
+            if run.ok
+            else {"UNAVAILABLE": run.error or "tool failed"}
+        )
     return {
         "scenario": request.scenario.model_dump(exclude={"question"}),
         "tools": tools,

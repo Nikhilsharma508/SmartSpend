@@ -56,6 +56,7 @@ step "app database — alembic upgrade head"
 uv run alembic -c apps/api/alembic.ini upgrade head
 
 step "MLflow — backfill the champion (idempotent)"
+mkdir -p data/mlflow
 uv run python pipelines/log_mlflow.py || echo "    warning: MLflow backfill skipped"
 
 step "smoke checks"

@@ -658,6 +658,9 @@ def test_mlflow_trace_exposes_llm_prompts_and_roles(config, context, tmp_path, m
     assert PLAN_Q in messages[1]["content"]
     assert response.attributes["smartspend.llm_role"] == "response"
     assert response.attributes["llm.model"] == "fake-gpt"
+    assert "data_sha256" not in messages[1]["content"]
+    model_card_span = spans["get_model_card"]
+    assert "data_sha256" not in model_card_span.outputs["output"]
     assert package.trace_id == trace.info.client_request_id
 
 

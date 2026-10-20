@@ -31,8 +31,9 @@ data/app/
 *.parquet
 
 # ---- MLflow / model artifacts ----
-# MLflow 3 metadata + GenAI traces (SQLite). Artifacts are not logged;
-# mlruns/ is kept ignored for legacy stores.
+# MLflow 3 metadata + GenAI traces (SQLite) live under data/mlflow/.
+# Artifacts are not logged; root mlruns/ is kept ignored for legacy stores.
+data/mlflow/
 /mlflow.db
 /mlflow.db-shm
 /mlflow.db-wal

@@ -21,7 +21,7 @@ import numpy as np
 from packages.causal.benchmark import BusinessAssumptions
 from packages.causal.features import build_features, encode_splits, make_splits
 from packages.causal.registry import load_model
-from packages.copilot.providers import tool_run
+from packages.copilot.providers import tool_run, trim_tool_output
 from packages.copilot.schemas import CampaignScenario, CopilotConfig, Intent, ToolRun
 from packages.datasets.hillstrom import fetch_hillstrom
 from packages.decision import (
@@ -319,7 +319,12 @@ def run_tools(
                 run = ToolRun(name=name, ok=False, error=f"{type(err).__name__}: {err}")
             runs.append(run)
             set_span_outputs(
-                span, {"ok": run.ok, "error": run.error, "output": run.output}
+                span,
+                {
+                    "ok": run.ok,
+                    "error": run.error,
+                    "output": trim_tool_output(name, run.output),
+                },
             )
             return run
 

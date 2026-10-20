@@ -130,7 +130,7 @@ pnpm -C apps/web lint && pnpm -C apps/web typecheck \
   Alembic — chosen over the documented PostgreSQL to keep the local run
   sign-in-free, with the Postgres swap remaining a one-URL change (PostgreSQL 18
   is the documented production option). No auth on local services.
-- **MLflow tracks locally in SQLite only** (MLflow 3.17, `mlflow.db`): the champion's
+- **MLflow tracks locally in SQLite only** (MLflow 3.17, `data/mlflow/mlflow.db`): the champion's
   params/metrics, and one GenAI trace per `/api/v1/copilot` request with child spans for
   `decision_llm`, plan, each Day-4 tool, `response_llm_attempt_*` (or
   `response_writer_attempt_*`) and validate. No artifacts are logged — the joblib

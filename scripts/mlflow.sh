@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Open the local MLflow UI for SmartSpend's tracking store.
 #
-# The API/pipelines read MLFLOW_TRACKING_URI (default: sqlite:///mlflow.db),
+# The API/pipelines read MLFLOW_TRACKING_URI (default: sqlite:///data/mlflow/mlflow.db),
 # so this script resolves the same setting instead of guessing. The champion is
 # backfilled first, which makes a fresh store show something useful.
 set -euo pipefail
@@ -11,6 +11,7 @@ REPO_ROOT="$(pwd)"
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 
 export MLFLOW_DISABLE_AGENT_HINT=1
+mkdir -p data/mlflow
 PORT="${MLFLOW_PORT:-5000}"
 URL="http://127.0.0.1:$PORT"
 
@@ -27,7 +28,7 @@ fi
 URI="$(uv run python -c \
   'from apps.api.app.core.config import settings; print(settings.mlflow_tracking_uri)' \
   2>/dev/null || true)"
-[ -n "$URI" ] || URI="sqlite:///mlflow.db"
+[ -n "$URI" ] || URI="sqlite:///data/mlflow/mlflow.db"
 
 # MLflow stores are repo-relative; hand the CLI absolute URIs.
 if [ "${URI#file:}" != "$URI" ]; then

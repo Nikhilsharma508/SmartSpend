@@ -34,12 +34,14 @@ TARGETS=(
   apps/web/coverage
   apps/web/.eslintcache
   models
+  data/mlflow
+  data/app
+  # Legacy root store paths, kept so an old checkout still resets cleanly.
   mlflow.db
   mlflow.db-shm
   mlflow.db-wal
   mlruns
   mlartifacts
-  data/app
   .pytest_cache
   .ruff_cache
   .mypy_cache
