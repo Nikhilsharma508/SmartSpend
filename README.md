@@ -1,10 +1,36 @@
 # SmartSpend — Causal Promo Targeting with a GenAI Campaign Copilot
 
+<a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11"></a>
+<a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.150-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI"></a>
+<a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React 19"></a>
+<a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 5.9"></a>
+<a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind CSS 4"></a>
+<a href="https://vite.dev/"><img src="https://img.shields.io/badge/Vite-7-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite 7"></a>
+<a href="https://mlflow.org/"><img src="https://img.shields.io/badge/MLflow-3.17-0194E2?style=flat-square&logo=mlflow&logoColor=white" alt="MLflow 3.17"></a>
+<a href="https://www.sqlite.org/"><img src="https://img.shields.io/badge/SQLite-3-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite"></a>
+
+<a href="https://docs.astral.sh/uv/"><img src="https://img.shields.io/badge/uv-Astral-6C4AA4?style=flat-square" alt="uv"></a>
+<a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node-22-5FA04E?style=flat-square&logo=node.js&logoColor=white" alt="Node 22"></a>
+<a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-10-F69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm 10"></a>
+<a href="https://www.uplift-modeling.com/"><img src="https://img.shields.io/badge/scikit--uplift-0.5-9E2F50?style=flat-square" alt="scikit-uplift"></a>
+<a href="https://github.com/uber/causalml"><img src="https://img.shields.io/badge/causalml-0.18-43B02A?style=flat-square" alt="causalml"></a>
+<a href="https://github.com/pycausal/py-EconML"><img src="https://img.shields.io/badge/EconML-0.17-4C6E31?style=flat-square" alt="EconML"></a>
+<a href="https://lightgbm.readthedocs.io/"><img src="https://img.shields.io/badge/LightGBM-4.7-2C5F8A?style=flat-square" alt="LightGBM"></a>
+<a href="https://docs.pytest.org/"><img src="https://img.shields.io/badge/pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white" alt="pytest"></a>
+<a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/ruff-D261FF?style=flat-square&logo=ruff&logoColor=white" alt="ruff"></a>
+<a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/mypy-2A6DB2?style=flat-square&logo=mypy&logoColor=white" alt="mypy"></a>
+<a href="https://jupyter.org/"><img src="https://img.shields.io/badge/JupyterLab-4-F37626?style=flat-square&logo=jupyter&logoColor=white" alt="JupyterLab"></a>
+
 Decide **who should get a discount** by estimating each customer's *incremental*
 response to it (CATE / uplift), then let a marketer plan a campaign in plain
 language through a grounded GenAI copilot — with every number in the answer
 computed by code and traced back to the model that produced it.
 
+> **Read the blog post** → [The Prompt Said Don't Derive Numbers. The Model
+> Derived Them Anyway.](https://medium.com/@nike.yoyo234/the-prompt-said-dont-derive-numbers-the-model-derived-them-anyway-2e82ef1a06a4)
+> — on grounding an LLM product by moving every decision that matters out of the
+> model and into ordinary Python.
+>
 > **Name:** SmartSpend (working title: UpliftIQ; other candidates: CausalEdge,
 > Incremental Profit Engine) · **Repo directory:** `SmartSpend`
 > **Status:** Days 1–6 shipped, Day 7 in progress → [`ROADMAP.md`](ROADMAP.md)
@@ -493,8 +519,7 @@ change the economics.
 ├── models/            # registered artifacts + provenance sidecars (git-ignored)
 ├── data/              # raw + processed (git-ignored, regenerable)
 ├── docs/              # concepts, dataset spec, eval report, figures, screenshots
-├── scripts/           # setup / start / delete / mlflow
-└── .github/workflows/ # CI: ruff, mypy, pytest
+└── scripts/           # setup / start / delete / mlflow
 ```
 
 Boundaries that keep it honest: notebooks are research only and reusable code
@@ -516,7 +541,7 @@ deterministic resolver — not a prompt — decides which model answers.
 | Storage | SQLite via SQLAlchemy + Alembic (`data/app/`); PostgreSQL is the documented production option | Scenarios, briefs, and an audit log of every copilot call |
 | Frontend | React + TypeScript (Vite), Motion, Tailwind, shadcn + Kokonut/Bklit registry components | Planner, Model lab, segments, test design, copilot chat |
 | Observability | MLflow GenAI traces (`decision_llm` / `response_llm` / tool spans), local SQLite tracking | Latency, cost, tool calls, validator failures per request |
-| Infra and CI | `scripts/start_app.sh` (`npm run start`), GitHub Actions | One-command local stack, no containers |
+| Infra | `scripts/start_app.sh` (`npm run start`) | One-command local stack, no containers |
 | Quality | `pytest`, `ruff`, `mypy`, Vitest | Backend and frontend tests |
 
 The causal libraries are pinned because their own dependency pins are old. There
@@ -557,9 +582,8 @@ Research Mode returns **422** naming the allow-list — never a silent downgrade
 | Build | `npm run web:build` | production bundle |
 | Copilot eval | `evals/run_seed_eval.py` | 46 labelled cases; the Day-6 report is `docs/eval_report_day6.md` |
 
-CI (`.github/workflows/ci.yml`) runs the three backend gates on every push and
-pull request; the frontend gates and the copilot eval are wired locally today
-and are on the list for Day 7.
+CI is not wired up in this build: the three backend gates and the frontend gates
+run locally, and a GitHub Actions workflow is on the list for Day 7.
 
 ---
 
@@ -581,9 +605,10 @@ and are on the list for Day 7.
 ## What's next
 
 Day 7 (see [`ROADMAP.md`](ROADMAP.md)): publish the repo, a standalone model-card
-page, a short write-up with the final numbers, a two-minute demo recording
-(question → brief → target list), and the two open gaps above closed — the
-budget-only what-if delta and the location-as-proxy refusal.
+page, a two-minute demo recording (question → brief → target list), a GitHub
+Actions workflow, and the two open gaps above closed — the budget-only what-if
+delta and the location-as-proxy refusal. The write-up with the final numbers is
+done: [the Medium post](https://medium.com/@nike.yoyo234/the-prompt-said-dont-derive-numbers-the-model-derived-them-anyway-2e82ef1a06a4).
 
 ---
 
@@ -596,6 +621,9 @@ three arms (Mens / Womens e-mail / no e-mail), outcomes `visit`, `conversion`,
 
 **References.**
 
+- Write-up — [The Prompt Said Don't Derive Numbers. The Model Derived Them
+  Anyway.](https://medium.com/@nike.yoyo234/the-prompt-said-dont-derive-numbers-the-model-derived-them-anyway-2e82ef1a06a4)
+  (Medium)
 - scikit-uplift docs — <https://www.uplift-modeling.com/>
 - MineThatData Hillstrom challenge (the original prose is reproduced in
   [`docs/datasets/hillstrom.md`](docs/datasets/hillstrom.md), Appendix A)
